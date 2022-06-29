@@ -1,0 +1,28 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${workspaceFolder}/.vscode/browse.vc.db",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/viceam/share/simatch-master/devel/include/**",
+        "/opt/ros/melodic/include/**",
+        "/home/viceam/share/simatch-master/src/nubot_coach/src/include/**",
+        "/home/viceam/share/simatch-master/src/robot_code/nubot_common/include/**",
+        "/home/viceam/share/simatch-master/src/robot_code/nubot_control/include/**",
+        "/home/viceam/share/simatch-master/src/robot_code/nubot_hwcontroller/include/**",
+        "/home/viceam/share/simatch-master/src/realtime_tools/include/**",
+        "/home/viceam/share/simatch-master/src/robot_code/simulation_interface/include/**",
+        "/home/viceam/share/simatch-master/src/robot_code/world_model/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}

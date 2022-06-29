@@ -1,0 +1,2 @@
+- setup-file:
+    local-name: /home/viceam/share/simatch-master/src/robot_code/nubot_control/build/devel/setup.sh
