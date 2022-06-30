@@ -135,8 +135,19 @@ void Plan::catchBall()
 	action->handle_enable = 1;
 	action->move_action = action->move_action = CatchBall;
 	action->rotate_mode = 0;
-	if (m_behaviour_.move2orif(r2b.angle().radian_, robot_ori_.radian_))
+
+	if(robot_pos_.distance(ball_pos_) >= 200)
+	{
+		m_behaviour_.move2orif(r2b.angle().radian_, robot_ori_.radian_);
 		m_behaviour_.move2target(ball_pos_, robot_pos_);
+	}
+
+	else
+	{
+		if (m_behaviour_.move2orif(r2b.angle().radian_, robot_ori_.radian_))
+			m_behaviour_.move2target(ball_pos_, robot_pos_);
+	}
+	
 }
 
 bool Plan::moveBall(DPoint target)
@@ -202,7 +213,65 @@ void Plan::shoot_1(bool &shootFlg)
 int Plan::canPass(int catchID)
 {
 	DPoint p2c = world_model_->RobotInfo_[catchID - 1].getLocation() - robot_pos_;
-	
+	int ret = 1;
+	//对方
+	for (int i = 0; i < 5; ++i)
+	{
+		DPoint obs = world_model_->Opponents_[i];
+		DPoint p2obs = obs - robot_pos_;
+
+		//同向且在pass 与 catch之间
+		if (p2c.ddot(p2obs) >= 0 && (p2c.ddot(p2obs) / p2c.length()) < p2c.length())
+		{
+			//距球路线小于100;
+			if (p2c.cross(p2obs) / p2c.length() < 100.0)
+			{
+				auto k = p2c.length() / (p2c.ddot(p2obs) / p2c.length());
+				//可吊射
+				if (k <= 3.0 && k >= 1.5)
+					ret = -1;
+
+				else
+					return 0;
+			}
+		}
+	}
+
+	//己方 ???
+	for (int i = 0; i < 5; ++i)
+	{
+		if (i == world_model_->AgentID_ - 1 || i == catchID - 1)
+			continue;
+		DPoint p2obs = world_model_->RobotInfo_[i].getLocation() - robot_pos_;
+
+		if (p2c.ddot(p2obs) >= 0)
+		{
+			DPoint obs = world_model_->RobotInfo_[i].getLocation();
+			DPoint p2obs = obs - robot_pos_;
+
+			if (p2c.ddot(p2obs) >= 0 && (p2c.ddot(p2obs) / p2c.length()) < p2c.length())
+			{
+				//距球路线小于100;
+				if (p2c.cross(p2obs) / p2c.length() < 100.0)
+				{
+					auto k = p2c.length() / (p2c.ddot(p2obs) / p2c.length());
+					//可吊射
+					if (k <= 3.0 && k >= 1.5)
+						ret = -1;
+
+					else
+						return 0;
+				}
+			}
+		}
+	}
+
+	if(ret == 1)
+	{
+		if(p2c.length() >= 700.0) return -1;
+	}
+
+	return ret;
 }
 
 void Plan::attack_1()
