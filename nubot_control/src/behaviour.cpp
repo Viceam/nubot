@@ -219,7 +219,6 @@ float movePID::PID_operation(const DPoint &target, const DPoint &robot_pos_)
 
 movePID mpid;
 
-
 class rotatePID
 {
 public:
@@ -235,26 +234,26 @@ private:
 
 float rotatePID::PID_operation(double target, double angle)
 {
-    // if (clock >= 10)
-    //     clock = 0;
-    // auto err = fabs(target - angle);
-    
-    // static auto pre_err = err;
-    // if (clock == 0)
-    // {
-    //     //重新计算
-    //     if (err >= 75.0 / 180 * SINGLEPI_CONSTANT)
-    //     {
-    //         ret = 6.0f;
-    //     }
-    //     else
-    //     {
-    //         ret = Kp * (err + Td * (pre_err - err) / 0.03);
-    //     }
-    // }
-    // pre_err = err;
-    // ++clock;
-    return 12.0f;
+    if (clock >= 10)
+        clock = 0;
+    auto err = fabs(target - angle);
+
+    static auto pre_err = err;
+    if (clock == 0)
+    {
+        //重新计算
+        if (err >= 75.0 / 180 * SINGLEPI_CONSTANT)
+        {
+            ret = 6.0f;
+        }
+        else
+        {
+            ret = Kp * (err + Td * (pre_err - err) / 0.03);
+        }
+    }
+    pre_err = err;
+    ++clock;
+    return ret;
 }
 
 rotatePID rpid;
@@ -319,7 +318,7 @@ bool Behaviour::move2target_slow(DPoint &target, DPoint &rob_pos, double err)
 
 bool Behaviour::move2oriFast(double target, double angle, double angle_thres)
 {
-    
+
     action->target_ori = target;
     action->maxw = rpid.PID_operation(target, angle);
 
@@ -384,8 +383,8 @@ void Behaviour::selfRotate(double angle)
 
     action->target_ori = target;
     action->maxw = 24.0;
-    
-    if(fabs(target - angle) <= 0.12)
+
+    if (fabs(target - angle) <= 0.12)
         target = -target;
 }
 
@@ -398,4 +397,56 @@ bool Behaviour::move2orif(double target, double angle, double angle_thres)
         return false;
 
     return true;
+}
+
+bool Behaviour::calPassingError(DPoint passRobot, DPoint catchRobot, double halfLength)
+{
+    DPoint c2p = catchRobot - passRobot;
+    double err = atan2(halfLength, c2p.length());
+
+    if (fabs(robot_ori_.radian_ - c2p.angle().radian_) <= err)
+        return true;
+    else
+        return false;
+}
+
+//快速旋转
+bool Behaviour::move2oriFAST(double t2r, double angle, double angle_thres, DPoint tar_pos, double tar_half_length, double speedup) 
+{                                                                                                                                  // angle_thres如果给0的话就用half_length判断模式 若用默认值则用角度差模式;half_length就是希望的误差长度范围的一半（自动计算误差角度）     0<= speedup<= 100
+    double tempTar = t2r;
+    double theta_e = tempTar - angle;
+    while (theta_e > SINGLEPI_CONSTANT)
+        theta_e = theta_e - 2 * SINGLEPI_CONSTANT;
+    while (theta_e <= -SINGLEPI_CONSTANT)
+        theta_e = theta_e + 2 * SINGLEPI_CONSTANT; //转化成-pi到pi的角度
+
+    if (theta_e < 60.0 * DEG2RAD && theta_e > 0.0) //正角太小，加大
+    {
+        action->target_ori = t2r + speedup * DEG2RAD;
+        action->maxw = fabs(t2r + speedup * DEG2RAD - angle) * 2;
+    }
+    else if (theta_e > -60.0 * DEG2RAD && theta_e < 0.0) //负角太小，加大
+    {
+        action->target_ori = t2r - speedup * DEG2RAD;
+        action->maxw = fabs(t2r - speedup * DEG2RAD - angle) * 2;
+    }
+    else //正常转动
+    {
+        action->target_ori = t2r;
+        action->maxw = fabs(t2r - angle) * 2;
+    }
+    if (fabs(angle_thres) < 1e-6 * DEG2RAD) // half_length模式
+    {
+        if (calPassingError(robot_pos_, tar_pos, tar_half_length)) //计算误差内，返回真值
+            return true;
+        else
+            return false;
+    }
+    else
+    {
+        if (fabs(t2r - angle) > angle_thres) //角度差模式
+            return false;
+        else
+            return true;
+    }
 }

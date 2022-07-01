@@ -8,7 +8,7 @@ Plan::Plan()
 	action = nullptr;
 }
 
-// catchball useless
+// catchball , useless
 void Plan::catchBallSlowly()
 {
 	auto r2b = ball_pos_ - robot_pos_;
@@ -60,7 +60,7 @@ void Plan::CatchPassedBall()
 	action->rotate_acton = Positioned;
 	action->move_action = No_Action;
 	action->rotate_mode = 0;
-	m_behaviour_.move2orif(r2b.angle().radian_, robot_ori_.radian_, 0.087);
+	m_behaviour_.move2oriFAST(r2b.angle().radian_, robot_ori_.radian_);
 
 	DPoint headoffPoint = robot_pos_;
 	//垂直运动球路径
@@ -82,7 +82,7 @@ void Plan::CatchPassedBall()
 				action->move_action = CatchBall;
 				action->rotate_acton = CatchBall;
 				action->rotate_mode = 0;
-				if (m_behaviour_.move2orif(r2b.angle().radian_, robot_ori_.radian_))
+				if (m_behaviour_.move2oriFAST(r2b.angle().radian_, robot_ori_.radian_, 0.087))
 					m_behaviour_.move2target(ball_pos_, robot_pos_);
 			}
 		}
@@ -106,7 +106,7 @@ bool Plan::PassBall_Action(int catch_ID, int pass_mode_)
 	world_model_->pass_cmds_.isvalid = true;
 	// m end
 	DPoint pass_target_ = world_model_->RobotInfo_[catch_ID - 1].getLocation() - robot_pos_;
-	if (m_behaviour_.move2oriFast(pass_target_.angle().radian_, robot_ori_.radian_, 0.087))
+	if (m_behaviour_.move2oriFAST(pass_target_.angle().radian_, robot_ori_.radian_, 0.087))
 	{
 		world_model_->is_passed_out_ = true;
 		world_model_->pass_cmds_.isvalid = true;
@@ -138,13 +138,13 @@ void Plan::catchBall()
 
 	if(robot_pos_.distance(ball_pos_) >= 200)
 	{
-		m_behaviour_.move2orif(r2b.angle().radian_, robot_ori_.radian_);
+		m_behaviour_.move2oriFAST(r2b.angle().radian_, robot_ori_.radian_, 0.087);
 		m_behaviour_.move2target(ball_pos_, robot_pos_);
 	}
 
 	else
 	{
-		if (m_behaviour_.move2orif(r2b.angle().radian_, robot_ori_.radian_))
+		if (m_behaviour_.move2oriFAST(r2b.angle().radian_, robot_ori_.radian_, 0.087))
 			m_behaviour_.move2target(ball_pos_, robot_pos_);
 	}
 	
@@ -162,7 +162,7 @@ bool Plan::moveBall(DPoint target)
 	auto realTarget = (target.distance(startPoint) <= 270) ? target : subtarget;
 	auto r2rt = realTarget - robot_pos_;
 
-	if (m_behaviour_.move2orif(r2rt.angle().radian_, robot_ori_.radian_))
+	if (m_behaviour_.move2oriFAST(r2rt.angle().radian_, robot_ori_.radian_))
 	{
 		m_behaviour_.move2target(realTarget, robot_pos_);
 	}
@@ -188,7 +188,7 @@ void Plan::shoot_1(bool &shootFlg)
 	action->rotate_mode = 0;
 	auto shoot_line = shoot_target - robot_pos_;
 
-	m_behaviour_.move2orif(shoot_line.angle().radian_, robot_ori_.radian_, 0.09);
+	m_behaviour_.move2oriFAST(shoot_line.angle().radian_, robot_ori_.radian_, 0.087, {0.0, 0.0}, 20.0, 40.0);
 
 	//求出球的运动轨迹方程
 	double t_x = robot_pos_.x_, t_y = robot_pos_.y_;
@@ -218,17 +218,26 @@ int Plan::canPass(int catchID)
 	for (int i = 0; i < 5; ++i)
 	{
 		DPoint obs = world_model_->Opponents_[i];
-		DPoint p2obs = obs - robot_pos_;
+		DPoint p2obs = obs - robot_pos_;	
+
+		ROS_INFO("rob xl : %lf yl : %lf", robot_pos_.x_, robot_pos_.y_);
+		ROS_INFO("obs xl : %lf, yl : %lf", obs.x_, obs.y_);
+
+		ROS_INFO("id %d", i);
+		ROS_INFO("p2c x: %lf y: %lf", p2c.x_, p2c.y_);
+		ROS_INFO("p2obs x: %lf, y: %lf", p2obs.x_, p2obs.y_);
+
+		ROS_INFO(".. %lf", p2c.ddot(p2obs));
 
 		//同向且在pass 与 catch之间
-		if (p2c.ddot(p2obs) >= 0 && (p2c.ddot(p2obs) / p2c.length()) < p2c.length())
+		if (p2c.ddot(p2obs) > 0 && (p2c.ddot(p2obs) / p2c.length()) < p2c.length())
 		{
 			//距球路线小于100;
 			if (p2c.cross(p2obs) / p2c.length() < 100.0)
 			{
 				auto k = p2c.length() / (p2c.ddot(p2obs) / p2c.length());
 				//可吊射
-				if (k <= 3.0 && k >= 1.5)
+				if (k <= 2.5 && k >= 1.67)
 					ret = -1;
 
 				else
@@ -238,33 +247,33 @@ int Plan::canPass(int catchID)
 	}
 
 	//己方 ???
-	for (int i = 0; i < 5; ++i)
-	{
-		if (i == world_model_->AgentID_ - 1 || i == catchID - 1)
-			continue;
-		DPoint p2obs = world_model_->RobotInfo_[i].getLocation() - robot_pos_;
+	// for (int i = 0; i < 5; ++i)
+	// {
+	// 	if (i == world_model_->AgentID_ - 1 || i == catchID - 1)
+	// 		continue;
+	// 	DPoint p2obs = world_model_->RobotInfo_[i].getLocation() - robot_pos_;
 
-		if (p2c.ddot(p2obs) >= 0)
-		{
-			DPoint obs = world_model_->RobotInfo_[i].getLocation();
-			DPoint p2obs = obs - robot_pos_;
+	// 	if (p2c.ddot(p2obs) >= 0)
+	// 	{
+	// 		DPoint obs = world_model_->RobotInfo_[i].getLocation();
+	// 		DPoint p2obs = obs - robot_pos_;
 
-			if (p2c.ddot(p2obs) >= 0 && (p2c.ddot(p2obs) / p2c.length()) < p2c.length())
-			{
-				//距球路线小于100;
-				if (p2c.cross(p2obs) / p2c.length() < 100.0)
-				{
-					auto k = p2c.length() / (p2c.ddot(p2obs) / p2c.length());
-					//可吊射
-					if (k <= 3.0 && k >= 1.5)
-						ret = -1;
+	// 		if (p2c.ddot(p2obs) >= 0 && (p2c.ddot(p2obs) / p2c.length()) < p2c.length())
+	// 		{
+	// 			//距球路线小于100;
+	// 			if (p2c.cross(p2obs) / p2c.length() < 100.0)
+	// 			{
+	// 				auto k = p2c.length() / (p2c.ddot(p2obs) / p2c.length());
+	// 				//可吊射
+	// 				if (k <= 2.5 && k >= 1.67)
+	// 					ret = -1;
 
-					else
-						return 0;
-				}
-			}
-		}
-	}
+	// 				else
+	// 					return 0;
+	// 			}
+	// 		}
+	// 	}
+	// }
 
 	if(ret == 1)
 	{

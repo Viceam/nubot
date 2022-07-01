@@ -86,6 +86,9 @@ namespace nubot
                 const double DEG2RAD = 0.01745329251994329547;
                 const int RUN = 1;
                 const int FLY = -1;
+        // private:
+        //         int passMode(const DPoint&, const DPoint&, const DPoint&);
         };
 }
 #endif // PLAN_H
+

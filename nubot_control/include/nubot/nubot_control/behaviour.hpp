@@ -20,6 +20,8 @@
 
 using namespace std;
 
+const double DEG2RAD = 1.0 / 180.0 * SINGLEPI_CONSTANT;
+
 namespace nubot
 {
 
@@ -54,7 +56,7 @@ namespace nubot
                            const DPoint &_robot_pos, const Angle &_robot_ori);
         void move2target(float pval, float dval, DPoint target, DPoint realtarvel, float maxvel,
                          const DPoint &_robot_pos, const Angle &_robot_ori);
-        
+
         void traceTarget();
         void revDecoupleFromVel(float vx, float vy, float &positivemax_rev, float &negativemax_rev);
         /** rotate to the target orientation by using PD control*/
@@ -75,9 +77,12 @@ namespace nubot
         bool move2target_slow(DPoint &target, DPoint &rob_pos, double err = 20.0);
         bool move2target(DPoint target, DPoint pos, double distance_thres = 20.0);
         void subtarget(DPoint &target_pos_, DPoint &robot_pos_);
+        bool calPassingError(DPoint passRobot, DPoint catchRobot, double halfLength = 28.0);
+        bool move2oriFAST(double t2r, double angle, double angle_thres = 5.0 * DEG2RAD, DPoint tar_pos = DPoint(0.0, 0.0), double tar_half_length = 20.0, double speedup = 12.0);
         bool move2oriFast(double target, double angle, double angle_thres = (0.13));
         //无避障
         bool move2targetFast(DPoint target, DPoint pos, double distance_thres = 20.0);
+        //...
         void selfRotate(double);
 
     public:
@@ -89,20 +94,21 @@ namespace nubot
         float last_app_vy_;
         float last_app_w_;
         float last_speed;
-        
+
         // add
-        DPoint m_subtarget;
+        Angle robot_ori_;
+        DPoint m_subtarget; // avoid obs
         DPoint robot_pos_;
         std::vector<nubot::DPoint2d> Obstacles_;
-    
+
     private:
         void relocate(int obs_num, double *cos_cast, double *sin_cast,
                       int *obs_group, std::vector<DPoint> &Obstacles_, DPoint &r2t);
         void _min(int n, double *nums, int &index, double &val);
         void _max(int n, double *nums, int &index, double &val);
+
     private:
-    
-        //add
+        // add
         const double radius_robot;
         const double radius_Obs;
     };
