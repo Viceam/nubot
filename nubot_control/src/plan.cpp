@@ -48,6 +48,8 @@ int Plan::nearest_oppdribble()
 	int min_id(0);
 	for (int i = 1; i < 5; ++i) // exclude goalkeeper
 	{
+		if(defend_occupied[i])
+			continue;
 		auto rob_pos_ = world_model_->RobotInfo_[i].getLocation();
 		if (rob_pos_.distance(opp_pos_) < min)
 		{
@@ -55,6 +57,7 @@ int Plan::nearest_oppdribble()
 			min_id = i;
 		}
 	}
+	defend_occupied[min_id] = 1;
 	return min_id;
 }
 
@@ -390,13 +393,13 @@ void Plan::defend1v1()
 
 int Plan::nearest_point(DPoint point)
 {
-	int occupied = nearest_oppdribble();
+	//int occupied = nearest_oppdribble();
 
 	double min = MAX;
 	int min_id;
 	for (int i = 1; i < 5; ++i)
 	{
-		if (i == occupied)
+		if (defend_occupied[i])
 			continue;
 		auto rob_pos = world_model_->RobotInfo_[i].getLocation();
 		if (rob_pos.distance(point) < min)
@@ -405,7 +408,7 @@ int Plan::nearest_point(DPoint point)
 			min_id = i;
 		}
 	}
-
+	defend_occupied[min_id] = 1;
 	return min_id;
 }
 

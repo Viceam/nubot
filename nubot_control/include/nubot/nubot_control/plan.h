@@ -74,7 +74,8 @@ namespace nubot
                 void CatchPassedBall(void);
                 void ProtectBallTry();
 
-
+                bool defend_occupied[5];
+                bool attack_occupied[5];
                 void attack(); //进攻
                 void defend(); //防守
 

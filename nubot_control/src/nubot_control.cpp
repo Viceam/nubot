@@ -696,6 +696,10 @@ namespace nubot
 
         void normalGame()
         {
+
+            memset(m_plan_.defend_occupied, false, sizeof(m_plan_.defend_occupied));
+            memset(m_plan_.attack_occupied, false, sizeof(m_plan_.attack_occupied));
+
             // end
             static bool last_dribble = 0;
             isactive = false;
