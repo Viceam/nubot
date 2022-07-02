@@ -546,7 +546,18 @@ int Plan::nearest_point(DPoint point)
 
 int Plan::nearest_opp()
 {
-	
+	int min = MAX;
+	int min_id(-1);
+	for(int i = 1; i < 5; ++i)
+	{
+		if(robot_pos_.distance(world_model_->Opponents_[i]) < min)
+		{
+			min = robot_pos_.distance(world_model_->Opponents_[i]);
+			min_id = i;
+		}
+	}
+
+	return min_id;
 }
 
 void Plan::block()
@@ -569,6 +580,25 @@ void Plan::block()
 	m_behaviour_.move2target(target, robot_pos_);
 
 	return;
+}
+
+void Plan::mark()
+{
+	DPoint r2b = ball_pos_ - robot_pos_;
+	//距球门最近的对方机器人的位置
+	DPoint opp_pos1 = world_model_->Opponents_[nearest_opp()];
+	//对方带球机器人位置
+	DPoint opp_pos2 = world_model_->Opponents_[oppDribble()];
+
+	// if(opp_pos1.distance(opp_pos2) <= 200.0) return;
+
+	DPoint target = opp_pos1.pointofline(opp_pos2, 125.0);
+
+	action->move_action = CatchBall;
+	action->rotate_acton = CatchBall;
+	action->rotate_mode = 0;
+	m_behaviour_.move2oriFAST(r2b.angle().radian_, robot_ori_.radian_);
+	m_behaviour_.move2target(target, robot_pos_);
 }
 
 int Plan::opp_getsforward()
