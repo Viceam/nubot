@@ -21,12 +21,7 @@ void Plan::catchBallSlowly()
 	}
 }
 
-// void Plan::catchBall()
-// {
-
-// }
-
-int Plan::oppDribble()
+int Plan::oppDribble() // 0 - 4
 {
 	for (int i = 0; i < 5; ++i)
 		if (world_model_->Opponents_[i].distance(ball_pos_) < 36)
@@ -44,6 +39,79 @@ bool Plan::ball_is_free()
 	if (oppDribble() >= 0)
 		return false;
 	return true;
+}
+
+int Plan::nearest_oppdribble()
+{
+	auto opp_pos_ = world_model_->Opponents_[oppDribble()];
+	double min = MAX;
+	int min_id(0);
+	for (int i = 1; i < 5; ++i) // exclude goalkeeper
+	{
+		auto rob_pos_ = world_model_->RobotInfo_[i].getLocation();
+		if (rob_pos_.distance(opp_pos_) < min)
+		{
+			min = rob_pos_.distance(opp_pos_);
+			min_id = i;
+		}
+	}
+	return min_id;
+}
+
+int Plan::numofinOurPenalty()
+{
+	int num(0);
+	for (int i = 1; i < 5; ++i)
+		if (world_model_->field_info_.isOurPenalty(world_model_->RobotInfo_[i].getLocation()))
+			++num;
+	return num;
+}
+
+int Plan::opp_nearestToOurGoal() // 1 - 4
+{
+	for (int i = 1; i < 5; ++i)
+	{
+		//只能有一名进攻球员在我方禁区
+		if (world_model_->field_info_.isOurPenalty(world_model_->Opponents_[i]))
+			return i;
+	}
+
+	//无对方球员在禁区
+	auto goal = DPoint(-1100.0, 0.0);
+	double min = MAX;
+	int min_id(0);
+	for (int i = 1; i < 5; ++i)
+	{
+		if (world_model_->Opponents_[i].distance(goal) < min)
+		{
+			min = world_model_->Opponents_[i].distance(goal);
+			min_id = i;
+		}
+	}
+
+	return min_id;
+}
+
+int Plan::Snd_nearest_oppdribble()
+{
+	auto opp_pos_ = world_model_->Opponents_[oppDribble()];
+	double min = MAX;
+	int min_id(0);
+
+	int first = nearest_oppdribble();
+
+	for (int i = 1; i < 5; ++i) // exclude goalkeeper
+	{
+		if (i == first)
+			continue;
+		auto rob_pos_ = world_model_->RobotInfo_[i].getLocation();
+		if (rob_pos_.distance(opp_pos_) < min)
+		{
+			min = rob_pos_.distance(opp_pos_);
+			min_id = i;
+		}
+	}
+	return min_id;
 }
 
 // catch ball function , only passing ball
@@ -72,7 +140,7 @@ void Plan::CatchPassedBall()
 		double b1 = ball_pos_.y_ - k1 * ball_pos_.x_;
 		double k2 = -1.0 / k1;
 		double b2 = robot_pos_.y_ - k2 * robot_pos_.x_;
-		headoffPoint = DPoint((b2 - b1) / (k1 - k2), (k1 * b2 - k2 * b1) / (k1 - k2));
+		headoffPoint = DPoint((b2 - b1) / (k1 - k2), (k1 * b2 - k2 * b1) / (k1 - k2)); //交点
 		if (m_behaviour_.move2target(headoffPoint, robot_pos_))
 		{
 			//接球
@@ -114,19 +182,50 @@ bool Plan::PassBall_Action(int catch_ID, int pass_mode_)
 		action->shootPos = pass_mode_;
 
 		if (pass_mode_ == -1) // FLY
-			action->strength = sqrt((pass_target_.length() / 100.0 - 2.0) * 9.8);
+			action->strength = sqrt((pass_target_.length() / 100.0) * 9.8);
 		else
 		{
 			action->strength = action->strength = pass_target_.length() / 30;
 			if (action->strength < 5.0)
 				action->strength = 5.0;
 		}
+
+		// ROS_INFO("strength: %lf ball_v %lf", action->strength, ball_vel_.length());
+		// ROS_INFO("dajosiiiiiiiii\n"
+		// 		 "sjiodfi*******\n"
+		// 		 "aodjsii***iii\n");
+
 		shoot_flag = true;
 		std::cout << "pass out" << std::endl;
 		//        ROS_INFO("I will pass to %d,the pass mode is %d,his position is x::= %lf, y:==%lf,my position is x==%lf,  y==%lf",catch_ID,pass_mode_,world_model_->RobotInfo_[catch_ID-1].getLocation().x_,world_model_->RobotInfo_[catch_ID-1].getLocation().y_,world_model_->RobotInfo_[world_model_->AgentID_-1].getLocation().x_,world_model_->RobotInfo_[world_model_->AgentID_-1].getLocation().y_);
 		kick_off = true;
 	}
 	return shoot_flag;
+}
+
+void Plan::ProtectBallTry()
+{
+	double OppAngle[5];
+	int i = 0, j = 0;
+	for (DPoint op : world_model_->Opponents_)
+	{
+		DPoint tmp = op - robot_pos_;
+		if (tmp.length() <= 150.0)
+		{
+			OppAngle[i] = tmp.angle().radian_;
+			i++;
+		}
+	}
+	double avg = 0.0;
+	for (j = 0; j < i; j++)
+	{
+		avg += OppAngle[j];
+	}
+	avg /= i;
+	m_behaviour_.move2oriFAST(avg + 180 * DEG2RAD, robot_ori_.radian_);
+	action->move_action = MoveWithBall;
+	action->rotate_acton = MoveWithBall;
+	action->rotate_mode = 0;
 }
 
 void Plan::catchBall()
@@ -136,7 +235,7 @@ void Plan::catchBall()
 	action->move_action = action->move_action = CatchBall;
 	action->rotate_mode = 0;
 
-	if(robot_pos_.distance(ball_pos_) >= 200)
+	if (robot_pos_.distance(ball_pos_) >= 200)
 	{
 		m_behaviour_.move2oriFAST(r2b.angle().radian_, robot_ori_.radian_, 0.087);
 		m_behaviour_.move2target(ball_pos_, robot_pos_);
@@ -147,7 +246,6 @@ void Plan::catchBall()
 		if (m_behaviour_.move2oriFAST(r2b.angle().radian_, robot_ori_.radian_, 0.087))
 			m_behaviour_.move2target(ball_pos_, robot_pos_);
 	}
-	
 }
 
 bool Plan::moveBall(DPoint target)
@@ -218,16 +316,7 @@ int Plan::canPass(int catchID)
 	for (int i = 0; i < 5; ++i)
 	{
 		DPoint obs = world_model_->Opponents_[i];
-		DPoint p2obs = obs - robot_pos_;	
-
-		ROS_INFO("rob xl : %lf yl : %lf", robot_pos_.x_, robot_pos_.y_);
-		ROS_INFO("obs xl : %lf, yl : %lf", obs.x_, obs.y_);
-
-		ROS_INFO("id %d", i);
-		ROS_INFO("p2c x: %lf y: %lf", p2c.x_, p2c.y_);
-		ROS_INFO("p2obs x: %lf, y: %lf", p2obs.x_, p2obs.y_);
-
-		ROS_INFO(".. %lf", p2c.ddot(p2obs));
+		DPoint p2obs = obs - robot_pos_;
 
 		//同向且在pass 与 catch之间
 		if (p2c.ddot(p2obs) > 0 && (p2c.ddot(p2obs) / p2c.length()) < p2c.length())
@@ -275,15 +364,147 @@ int Plan::canPass(int catchID)
 	// 	}
 	// }
 
-	if(ret == 1)
+	if (ret == 1)
 	{
-		if(p2c.length() >= 700.0) return -1;
+		if (p2c.length() >= 700.0)
+			return -1;
 	}
 
 	return ret;
 }
 
-void Plan::attack_1()
+void Plan::defend1v1()
 {
-	auto target = DPoint(700, 0);
+	DPoint opp_dribbling_pos_ = world_model_->Opponents_[oppDribble()];
+	// DPoint opp2b = ball_pos_ - opp_dribbling_pos_;
+	// Angle oppd_ori_ = opp2b.angle(); // 带球机器人朝向角
+
+	auto target = opp_dribbling_pos_.pointofline(ball_pos_, 100.0);
+
+	action->move_action = CatchBall;
+	action->rotate_acton = CatchBall;
+	action->rotate_mode = 0;
+	m_behaviour_.move2oriFAST((ball_pos_ - robot_pos_).angle().radian_, robot_ori_.radian_);
+	m_behaviour_.move2target(target, robot_pos_);
+}
+
+int Plan::nearest_point(DPoint point)
+{
+	int occupied = nearest_oppdribble();
+
+	double min = MAX;
+	int min_id;
+	for (int i = 1; i < 5; ++i)
+	{
+		if (i == occupied)
+			continue;
+		auto rob_pos = world_model_->RobotInfo_[i].getLocation();
+		if (rob_pos.distance(point) < min)
+		{
+			min = rob_pos.distance(point);
+			min_id = i;
+		}
+	}
+
+	return min_id;
+}
+
+void Plan::block()
+{
+
+	DPoint r2b = ball_pos_ - robot_pos_;
+	//距球门最近的对方机器人的位置
+	DPoint opp_pos1 = world_model_->Opponents_[opp_nearestToOurGoal()];
+	//对方带球机器人位置
+	DPoint opp_pos2 = world_model_->Opponents_[oppDribble()];
+
+	// if(opp_pos1.distance(opp_pos2) <= 200.0) return;
+
+	DPoint target = opp_pos1.pointofline(opp_pos2, 125.0);
+
+	action->move_action = CatchBall;
+	action->rotate_acton = CatchBall;
+	action->rotate_mode = 0;
+	m_behaviour_.move2oriFAST(r2b.angle().radian_, robot_ori_.radian_);
+	m_behaviour_.move2target(target, robot_pos_);
+
+	return;
+}
+
+int Plan::opp_getsforward()
+{
+	int min = MAX;
+	int min_id(-1);
+	for(int i = 1; i < 5; ++i)
+	{
+		if(world_model_->Opponents_[i].x_ < min)
+		{
+			min = world_model_->Opponents_[i].x_;
+			min_id = i;
+		}
+	}
+	return min_id;
+}
+
+void Plan::defend_shoot()
+{
+	DPoint opp_pos_ = world_model_->Opponents_[oppDribble()]; // 对方射门机器人位置
+	DPoint target = opp_pos_.pointofline(ball_pos_, 75.0);
+	
+	action->move_action = CatchBall;
+	action->rotate_acton = CatchBall;
+	action->rotate_mode = 0;
+	m_behaviour_.move2oriFAST((ball_pos_ - robot_pos_).angle().radian_, robot_ori_.radian_);
+	m_behaviour_.move2target(target, robot_pos_);
+}
+
+void Plan::blockPassingBall()
+{
+	//寻找前插最深入的对方机器人
+	DPoint opp_pos_ = world_model_->Opponents_[opp_getsforward()];//位置 
+
+	DPoint target = opp_pos_.pointofline(ball_pos_, 150.0);
+
+	action->move_action = CatchBall;
+	action->rotate_acton = CatchBall;
+	action->rotate_mode = 0;
+	m_behaviour_.move2oriFAST((ball_pos_ - robot_pos_).angle().radian_, robot_ori_.radian_);
+	m_behaviour_.move2target(target, robot_pos_);
+}
+
+void Plan::defend()
+{
+	int opp_dri = oppDribble(), opp_near_goal = opp_nearestToOurGoal();
+	auto opp_dri_pos = world_model_->Opponents_[opp_dri], opp_near_goal_pos = world_model_->Opponents_[opp_near_goal];
+
+	//带球人离球门最近或中间无空隙
+	if (opp_dri_pos.distance(opp_near_goal_pos) <= 200.0)
+	{
+		if(world_model_->AgentID_ - 1 == )
+		{
+			
+			defend_shoot();
+		}
+	}
+
+	//带球人不离球门最近
+	else
+	{
+		DPoint target = opp_near_goal_pos.pointofline(opp_dri_pos, 150.0);
+		//是离带球对手最近的机器人
+		if (world_model_->AgentID_ - 1 == nearest_oppdribble())
+		{
+			defend1v1();
+		}
+
+		else if (world_model_->AgentID_ - 1 == nearest_point(target))
+		{
+			block();
+		}
+	}
+}
+
+void Plan::attack()
+{
+	// auto target = DPoint(700, 0);
 }

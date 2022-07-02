@@ -72,10 +72,23 @@ namespace nubot
                 DPoint startPoint;
                 bool PassBall_Action(int catch_ID, int pass_mode_);
                 void CatchPassedBall(void);
-                bool ball_is_free();
-                int oppDribble();
-                //
-                void attack_1();
+                void ProtectBallTry();
+
+
+                void attack(); //进攻
+                void defend(); //防守
+
+                //以下待移入private
+
+                //void mark(); //盯防
+                //封堵 移动到对方两机器人之间
+                void block();
+                //阻挡射门
+                void defend_shoot(); 
+                //阻挡传球
+                void blockPassingBall();
+                //1v1 随带球机器人朝向进行移动
+                void defend1v1(); 
                 //运球
                 bool moveBall(DPoint);
                 bool isMoving = false;
@@ -86,9 +99,30 @@ namespace nubot
                 const double DEG2RAD = 0.01745329251994329547;
                 const int RUN = 1;
                 const int FLY = -1;
-        // private:
-        //         int passMode(const DPoint&, const DPoint&, const DPoint&);
+                const double MAX = 2147483647.0; 
+                const double MIN = -2147483647.0;
+        private:
+
+                //离某个点最近
+                int nearest_point(DPoint);
+
+                //defend
+                //返回离对方带球机器人最近的球员
+                int nearest_oppdribble();     
+                //球是否自由
+                bool ball_is_free();
+                //对方几号带球
+                int oppDribble();
+                //距我方球门最近的敌方机器人        
+                int opp_nearestToOurGoal();
+                //有几个己方机器人在己方禁区
+                int numofinOurPenalty();
+                //返回距离对方带球机器人第二近的球员
+                int Snd_nearest_oppdribble();
+                //返回前插最深入的对方机器人
+                int opp_getsforward();
+                
+                //defend end
         };
 }
 #endif // PLAN_H
-

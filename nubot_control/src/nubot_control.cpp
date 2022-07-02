@@ -689,6 +689,11 @@ namespace nubot
             return -1;
         }
 
+        bool isOurDrrible()
+        {
+            return whichopp_dribble() < 0 && !ball_is_free();
+        }
+
         void normalGame()
         {
             // end
@@ -705,6 +710,7 @@ namespace nubot
             // end
             else if (world_model_info_.AgentID_ == 2)
             {
+                ROS_INFO("ball_v = %lf", ball_vel_.length());
                 //选择二号为接球射门机器人
                 action_cmd_.move_action = No_Action;
                 action_cmd_.rotate_acton = No_Action;
@@ -1572,4 +1578,3 @@ int main(int argc, char **argv)
     ros::spin();
     return 0;
 }
-
