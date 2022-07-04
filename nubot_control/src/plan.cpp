@@ -126,7 +126,7 @@ const DPoint Plan::get_fly_landing_point()
 int Plan::oppDribble() // 0 - 4
 {
 	for (int i = 0; i < 5; ++i)
-		if (world_model_->Opponents_[i].distance(ball_pos_) < 36)
+		if (world_model_->Opponents_[i].distance(ball_pos_) < 35.5)
 			return i;
 	return -1;
 }
@@ -293,11 +293,6 @@ bool Plan::PassBall_Action(int catch_ID, int pass_mode_)
 				action->strength = 5.0;
 		}
 
-		// ROS_INFO("strength: %lf ball_v %lf", action->strength, ball_vel_.length());
-		// ROS_INFO("dajosiiiiiiiii\n"
-		// 		 "sjiodfi*******\n"
-		// 		 "aodjsii***iii\n");
-
 		shoot_flag = true;
 		std::cout << "pass out" << std::endl;
 		//        ROS_INFO("I will pass to %d,the pass mode is %d,his position is x::= %lf, y:==%lf,my position is x==%lf,  y==%lf",catch_ID,pass_mode_,world_model_->RobotInfo_[catch_ID-1].getLocation().x_,world_model_->RobotInfo_[catch_ID-1].getLocation().y_,world_model_->RobotInfo_[world_model_->AgentID_-1].getLocation().x_,world_model_->RobotInfo_[world_model_->AgentID_-1].getLocation().y_);
@@ -360,7 +355,7 @@ bool Plan::moveBall(DPoint target)
 	action->rotate_mode = 0;
 
 	//真目标
-	auto realTarget = (target.distance(startPoint) <= 270) ? target : subtarget;
+	auto realTarget = (target.distance(startPoint) <= 270.0) ? target : subtarget;
 	auto r2rt = realTarget - robot_pos_;
 
 	if (m_behaviour_.move2oriFAST(r2rt.angle().radian_, robot_ori_.radian_))
@@ -569,9 +564,16 @@ void Plan::block()
 	//对方带球机器人位置
 	DPoint opp_pos2 = world_model_->Opponents_[oppDribble()];
 
+	ROS_INFO("opp dribble = %d", oppDribble());
+
 	// if(opp_pos1.distance(opp_pos2) <= 200.0) return;
 
+	ROS_INFO("opp_pos1 x = %lf, y = %lf", opp_pos1.x_, opp_pos1.y_);
+	ROS_INFO("opp_pos2 x = %lf, y = %lf", opp_pos2.x_, opp_pos2.y_);
+
 	DPoint target = opp_pos1.pointofline(opp_pos2, 125.0);
+
+	ROS_INFO("target x = %lf, y = %lf", target.x_, target.y_);
 
 	action->move_action = CatchBall;
 	action->rotate_acton = CatchBall;
@@ -585,7 +587,7 @@ void Plan::block()
 void Plan::mark()
 {
 	DPoint r2b = ball_pos_ - robot_pos_;
-	//距球门最近的对方机器人的位置
+	//距自己最近的对方机器人的位置
 	DPoint opp_pos1 = world_model_->Opponents_[nearest_opp()];
 	//对方带球机器人位置
 	DPoint opp_pos2 = world_model_->Opponents_[oppDribble()];
