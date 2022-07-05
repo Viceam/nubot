@@ -641,7 +641,7 @@ void Plan::defend1v1()
 		action->move_action = CatchBall;
 		action->rotate_acton = CatchBall;
 		action->rotate_mode = 0;
-		if(m_behaviour_.move2target(target_, robot_pos_))
+		if (m_behaviour_.move2target(target_, robot_pos_))
 			m_behaviour_.move2oriFAST(r2b.angle().radian_, robot_ori_.radian_);
 	}
 
@@ -726,7 +726,7 @@ void Plan::block()
 	ROS_INFO("opp_pos1 x = %lf, y = %lf", opp_pos1.x_, opp_pos1.y_);
 	ROS_INFO("opp_pos2 x = %lf, y = %lf", opp_pos2.x_, opp_pos2.y_);
 
-	DPoint target = opp_pos1.pointofline(opp_pos2, 100.0);
+	DPoint target = opp_pos1.pointofline(opp_pos2, 75.0);
 
 	ROS_INFO("target x = %lf, y = %lf", target.x_, target.y_);
 
@@ -741,15 +741,47 @@ void Plan::block()
 
 void Plan::mark()
 {
+	int opp_dri_ = oppDribble();
+	DPoint opp_pos2 = world_model_->Opponents_[opp_dri_];
+	int opp_near_goal_ = opp_nearestToOurGoal();
+	double ori = (ball_pos_ - world_model_->Opponents_[opp_dri_]).angle().radian_;
 	DPoint r2b = ball_pos_ - robot_pos_;
-	//距自己最近的对方机器人的位置
-	DPoint opp_pos1 = world_model_->Opponents_[nearest_opp()];
-	//对方带球机器人位置
-	DPoint opp_pos2 = world_model_->Opponents_[oppDribble()];
+	DPoint target;
+	bool Flg = 0;
+	int pass_id_ = -1;
 
-	// if(opp_pos1.distance(opp_pos2) <= 200.0) return;
+	//找一个可能的接传球者
+	//没有处理防守冲突与有两个可能接球者的情况
+	for (int i = 1; i < 5; ++i)
+	{
+		if (i == opp_dri_ || i == opp_near_goal_)
+			continue;
+		double ori2 = (world_model_->Opponents_[i] - world_model_->Opponents_[opp_dri_]).angle().radian_;
+		if (fabs(ori - ori2) <= 15.0 / DEG2RAD)
+		{
+			Flg = 1;
+			pass_id_ = i;
+		}
+	}
 
-	DPoint target = opp_pos1.pointofline(opp_pos2, 125.0);
+	if (Flg)
+	{
+		//防守可能接球者
+		auto opp_pos_ = world_model_->Opponents_[pass_id_];
+		target = opp_pos_.pointofline(opp_pos2, 125.0);
+	}
+
+	else
+	{
+		//距自己最近的对方机器人的位置
+
+		DPoint opp_pos1 = world_model_->Opponents_[nearest_opp()];
+		//对方带球机器人位置
+
+		// if(opp_pos1.distance(opp_pos2) <= 200.0) return;
+
+		DPoint target = opp_pos1.pointofline(opp_pos2, 125.0);
+	}
 
 	action->move_action = CatchBall;
 	action->rotate_acton = CatchBall;
