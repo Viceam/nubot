@@ -810,12 +810,14 @@ int Plan::nearest_point(DPoint point)
 	return min_id;
 }
 
-int Plan::nearest_opp()
+int Plan::nearest_opp(int exp1, int exp2)
 {
 	int min = MAX;
 	int min_id(-1);
 	for (int i = 1; i < 5; ++i)
 	{
+		if(i == exp1 || i == exp2)
+			continue;
 		if (robot_pos_.distance(world_model_->Opponents_[i]) < min)
 		{
 			min = robot_pos_.distance(world_model_->Opponents_[i]);
@@ -862,7 +864,7 @@ void Plan::mark()
 	int pass_id_ = -1;
 
 	//找一个可能的接传球者
-	//没有处理防守冲突与有两个可能接球者的情况
+	
 	for (int i = 1; i < 5; ++i)
 	{
 		if (i == opp_dri_ || i == opp_near_goal_)
@@ -885,9 +887,7 @@ void Plan::mark()
 	else //防守离自己最近的机器人
 	{
 		//距自己最近的对方机器人的位置
-
-		DPoint opp_pos1 = world_model_->Opponents_[nearest_opp()];
-		//对方带球机器人位置
+		DPoint opp_pos1 = world_model_->Opponents_[nearest_opp(opp_dri_, opp_near_goal_)];
 
 		// if(opp_pos1.distance(opp_pos2) <= 200.0) return;
 
