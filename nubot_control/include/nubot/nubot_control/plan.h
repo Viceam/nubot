@@ -182,7 +182,7 @@ namespace nubot
 		//返回前插最深入的对方机器人
 		int opp_getsforward();
 		//离自己最近的opp
-		int nearest_opp();
+		int nearest_opp(int exp1 = -1, int exp2 = -1);
 		// defend end
 
 		int Get_Ball_Mode(int);
