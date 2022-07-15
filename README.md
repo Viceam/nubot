@@ -30,7 +30,7 @@ defend version2:
 
 
 
-2022 7.15：
+2022 7.15 修改：
 
 ​	staticpass.cpp, staticpass.h  内实现各种比赛模式下的跑位
 
