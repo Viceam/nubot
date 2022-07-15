@@ -28,3 +28,18 @@ defend version2:
 
 其余情况的策略与2021年相同
 
+
+
+2022 7.15：
+
+​	staticpass.cpp, staticpass.h  内实现各种比赛模式下的跑位
+
+​	nubot_control.cpp 中loopControl()函数, position()函数与position()内调用的站位函数
+
+​	void Plan::moveAvoidBall(DPoint *target*) 躲避其他机器人与球进行移动，用于开角球等情况下的跑位
+
+​	defend()函数 将接球部分与防守部分分开放入if else中，避免接球时同时执行防守策略
+
+​	bool Plan::moveBall(DPoint)中处理带球不超过300cm规则
+
+​		
