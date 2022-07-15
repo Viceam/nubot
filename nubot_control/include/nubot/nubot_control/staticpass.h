@@ -33,6 +33,17 @@ public:
     void    OurkickoffReady_();
     void    OppkickoffReady_();
     void    DropBallReady_();
+    void    OurfreekickReady_();
+    void    OppfreekickReady_();
+    void    OurGoalReady_();
+    void    OppGoalReady_();
+    void    OurCornerReady_();
+    void    OppCornerReady_();
+    void    OurThrowinReady_();
+    void    OppThrowinReady_();    
+
+    void init_our_in_field();
+    bool TeammatesInPenalty();
 
 public:
 
@@ -50,6 +61,19 @@ public:
     DPoint target_;                              //该机器人的站位点
     DPoint ballPos_;                             //混合后的球坐标
     DPoint backFieldPoint_;                      //后卫点
+
+    DPoint target_pos_[4];
+
+    int num_in_field;
+    int out_of_field;
+    int ID_in_field[4];
+    int ID_out_field[4];
+
+    DPoint target_opp_pos[4];
+    int opp_in_field;
+    int opp_out_field;
+	int opp_id_in[4];
+    int opp_id_out[4];
 };
 
 }

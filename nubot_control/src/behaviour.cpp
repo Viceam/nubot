@@ -97,9 +97,173 @@ void Behaviour::relocate(int obs_num, double *cos_cast, double *sin_cast,
                      (sin(alpha_val) * r2t.x_ + cos(alpha_val) * r2t.y_) * Obstacles_.at(obs_group[alpha_id]).distance(robot_pos_) / r2t.length();
 }
 
+bool Behaviour::movewithallObs(DPoint target, DPoint pos, double distance_thres, int k)
+{
+    subtarget(target, robot_pos_, true);
+    target = m_subtarget;
+    action->target.x = target.x_;
+    action->target.y = target.y_;
+    action->maxvel = k * target.distance(pos);
+
+    if (pos.distance(target) > distance_thres)
+        return false;
+    else
+        return true;
+}
+
+void Behaviour::subtarget(DPoint target_pos_, DPoint robot_pos_, bool avoid_ball) //计算临时目标点
+{
+    std::vector<DPoint> Obstacles_ = this->Obstacles_;
+
+    if (avoid_ball)
+    {
+        Obstacles_.push_back(ball_pos_);
+    }
+
+    for (int c = Obstacles_.size(); c < 10; c++)
+        Obstacles_.push_back(DPoint(10000, 10000));
+
+    double radius_robot = 50.0, radius_Obs = 50.0;
+    double a[10] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}, b[10];
+    DPoint point_ = target_pos_ - robot_pos_; // Target point vector
+    int i = 0, j = 0, k = 0;
+    int B[10] = {0};
+    int First_num = 0;
+    double minB = 0;
+
+    int G[10] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+    int G_num = 0;
+    int G_Obstacles_[10] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+
+    double b_positive[11] = {0};
+    double b_negative[11] = {0};
+    int left = 0, right = 0, sign_side = 0, bp_num = 0, bn_num = 0;
+
+    double atemp = 0;
+    double alpha[10] = {0};
+    double alpha_i = 0;
+    int alpha_k = 0;
+
+    bool canpass = 0;
+
+    for (i = 0; i < 10; i++)
+    {
+        int temp = 0;
+        DPoint point1_ = Obstacles_.at(i) - robot_pos_;
+        if (point_.cross(point1_) == 0)
+            temp = 0;
+        else if (point_.cross(point1_) > 0)
+            temp = 1;
+        else
+            temp = -1;
+
+        a[i] = point_.ddot(point1_) / point_.length(); // Point multiplication for projection
+        b[i] = temp * fabs(point_.cross(point1_)) / point_.length();
+    }
+    // obtain B that may hit
+    for (i = 0; i < 10; i++)
+    {
+        if ((a[i] > 0) && (a[i] < point_.length()) && (fabs(b[i]) < (radius_robot + radius_Obs)))
+        {
+            B[j] = i;
+            j++;
+        }
+    }
+
+    if (j != 0)
+    {
+        // determine first Obstacles_
+        First_num = B[0];
+        minB = a[B[0]];
+        for (i = 1; i < j; i++)
+        {
+            if (minB < a[B[i]])
+                minB = minB;
+            else
+            {
+                minB = a[B[i]];
+                First_num = B[i];
+            }
+        }
+
+        // Grouping--the Obstacles_ that must be avoided
+        G[0] = First_num;
+        G_num = 0;
+        G_Obstacles_[First_num] = 0;
+
+        for (i = 0; i < 10; i++)
+        {
+            if (G_Obstacles_[i] == 1)
+            {
+                for (k = 0; k <= G_num; k++)
+                {
+                    if (Obstacles_.at(i).distance(Obstacles_.at(G[k])) < (2 * radius_robot + 2 * radius_Obs))
+                    {
+                        G_num++;
+                        G[G_num] = i;
+                        G_Obstacles_[i] = 0;
+                        i = -1;
+                        break;
+                    }
+                }
+            }
+        }
+        // Location of subtarget
+        for (i = 0; i <= G_num; i++)
+        {
+            if (b[G[i]] > 0)
+            {
+                bp_num++;
+                b_positive[bp_num] = b[G[i]];
+            }
+            else if (b[G[i]] < 0)
+            {
+                bn_num++;
+                b_negative[bn_num] = fabs(b[G[i]]);
+            }
+        }
+        if (*std::max_element(b_positive, b_positive + 11) <= *std::max_element(b_negative, b_negative + 11))
+        {
+            left = 1;
+            sign_side = 1;
+        }
+        else
+        {
+            right = 1;
+            sign_side = -1;
+        }
+
+        for (i = 0; i <= G_num; i++)
+        {
+            atemp = Obstacles_.at(G[i]).distance(robot_pos_);
+            if (atemp < (radius_robot + radius_Obs))
+            {
+                atemp = radius_robot + radius_Obs + 0.0001;
+                canpass = 1;
+            }
+            alpha[i] = atan2(b[G[i]], a[G[i]]) + sign_side * asin((radius_robot + radius_Obs) / atemp);
+        }
+
+        if (left == 1)
+        {
+            _max(G_num + 1, alpha, alpha_k, alpha_i);
+        }
+        else
+        {
+            _min(G_num + 1, alpha, alpha_k, alpha_i);
+        }
+
+        m_subtarget.x_ = robot_pos_.x_ + (cos(alpha_i) * point_.x_ - sin(alpha_i) * point_.y_) * Obstacles_.at(G[alpha_k]).distance(robot_pos_) / point_.length();
+        m_subtarget.y_ = robot_pos_.y_ + (sin(alpha_i) * point_.x_ + cos(alpha_i) * point_.y_) * Obstacles_.at(G[alpha_k]).distance(robot_pos_) / point_.length();
+    }
+    else
+        m_subtarget = target_pos_;
+}
+
 void Behaviour::subtarget(DPoint &target_pos_, DPoint &robot_pos_)
 {
     std::vector<DPoint> Obstacles_ = this->Obstacles_;
+
     for (int c = Obstacles_.size(); c < 9; c++)
         Obstacles_.push_back(DPoint(10000, 10000));
     double cos_cast[9], sin_cast[9];
@@ -316,6 +480,20 @@ bool Behaviour::move2target_slow(DPoint &target, DPoint &rob_pos, double err)
     return true;
 }
 
+bool Behaviour::move2targetk(DPoint target, DPoint pos, double distance_thres, int k) // 一个十分简单的实现，可以用PID
+{
+    subtarget(target, robot_pos_);
+    target = m_subtarget;
+
+    action->target.x = target.x_;
+    action->target.y = target.y_;
+    action->maxvel = k * pos.distance(target);
+    if (pos.distance(target) > distance_thres)
+        return false;
+    else
+        return true;
+}
+
 bool Behaviour::move2oriFast(double target, double angle, double angle_thres)
 {
 
@@ -328,14 +506,12 @@ bool Behaviour::move2oriFast(double target, double angle, double angle_thres)
     return true;
 }
 
-//守门员
-bool Behaviour::move2targetFast(DPoint target, DPoint pos, double distance_thres)
+//无避障快速移动
+bool Behaviour::move2targetFast(DPoint target, DPoint pos, double distance_thres, int k)
 {
-    // subtarget(target, robot_pos_);
-    // target = m_subtarget;
     action->target.x = target.x_;
     action->target.y = target.y_;
-    action->maxvel = mpid.PID_operation(target, robot_pos_);
+    action->maxvel = k * pos.distance(target);
     if (pos.distance(target) > distance_thres)
         return false;
     else
@@ -411,8 +587,8 @@ bool Behaviour::calPassingError(DPoint passRobot, DPoint catchRobot, double half
 }
 
 //快速旋转
-bool Behaviour::move2oriFAST(double t2r, double angle, double angle_thres, DPoint tar_pos, double tar_half_length, double speedup) 
-{                                                                                                                                  // angle_thres如果给0的话就用half_length判断模式 若用默认值则用角度差模式;half_length就是希望的误差长度范围的一半（自动计算误差角度）     0<= speedup<= 100
+bool Behaviour::move2oriFAST(double t2r, double angle, double angle_thres, DPoint tar_pos, double tar_half_length, double speedup)
+{ // angle_thres如果给0的话就用half_length判断模式 若用默认值则用角度差模式;half_length就是希望的误差长度范围的一半（自动计算误差角度）     0<= speedup<= 100
     double tempTar = t2r;
     double theta_e = tempTar - angle;
     while (theta_e > SINGLEPI_CONSTANT)

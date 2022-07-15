@@ -78,6 +78,9 @@ namespace nubot
         DPoint opp_next_pos;
         DPoint opp2b_next;
 
+        bool kick_off = 0;
+        int timeLock = 480;
+
     public:
         NuBotControl(int argc, char **argv)
         {
@@ -239,30 +242,97 @@ namespace nubot
 
             // add
 
-            // init
+            //
             m_plan_.action = &action_cmd_;
             m_plan_.robot_pos_ = robot_pos_;
             m_plan_.robot_ori_ = robot_ori_;
             m_plan_.ball_pos_ = ball_pos_;
             m_plan_.ball_vel_ = ball_vel_;
+
             m_plan_.m_behaviour_.action = &action_cmd_;
             m_plan_.m_behaviour_.robot_pos_ = robot_pos_;
             m_plan_.m_behaviour_.Obstacles_ = world_model_info_.Obstacles_;
             m_plan_.m_behaviour_.robot_ori_ = robot_ori_;
+            m_plan_.m_behaviour_.ball_pos_ = ball_pos_;
+            m_staticpass_.ballPos_ = ball_pos_;
+            m_staticpass_.world_model_ = &world_model_info_;
 
             world_model_info_.update(ball_holding_.BallIsHolding);
 
+            if (world_model_info_.pass_state_.is_passing_ == true)
+            {
+                //            ROS_INFO("ID=%d, pass_state=%d, isvalid=%d",world_model_info_.AgentID_,world_model_info_.pass_state_.is_passing_,world_model_info_.pass_cmds_.isvalid);
+                world_model_info_.pass_cmds_.isvalid = false;
+                kick_off = true;
+            }
+
             if (match_mode_ == STOPROBOT)
             {
+                kick_off = 0;
+                timeLock = 480;
                 /// 运动参数
                 action_cmd_.move_action = No_Action;
                 action_cmd_.rotate_acton = No_Action;
+                world_model_info_.pass_state_.reset();
             }
             /** 机器人在开始之前的跑位. 开始静态传接球的目标点计算*/
             else if (match_mode_ > STOPROBOT && match_mode_ <= DROPBALL)
                 positioning();
             else if (match_mode_ == PARKINGROBOT)
                 parking();
+
+            else if (pre_match_mode_ == OUR_PENALTY)
+            {
+                if (world_model_info_.AgentID_ == 1)
+                {
+                    if (kick_off == 0)
+                        our_penalty();
+                }
+                else
+                {
+                    parking();
+                }
+            }
+            else if (pre_match_mode_ == OPP_PENALTY)
+            {
+                if (world_model_info_.AgentID_ == 1)
+                {
+                    opp_penalty();
+                }
+                else
+                {
+                    parking();
+                }
+            }
+            else if (pre_match_mode_ == OUR_KICKOFF ||
+                     pre_match_mode_ == OUR_THROWIN ||
+                     pre_match_mode_ == OUR_GOALKICK ||
+                     pre_match_mode_ == OUR_CORNERKICK ||
+                     pre_match_mode_ == OUR_FREEKICK)
+            {
+                if (!kick_off)
+                {
+                    ROS_INFO("kick off");
+                    kickOff();
+                }
+                else
+                {
+                    normalGame();
+                }
+            }
+            else if (pre_match_mode_ == DROPBALL)
+            {
+                normalGame();
+            }
+            else if (timeLock && ball_vel_.length() > 20.0)
+            {
+                timeLock = 0;
+            }
+            else if (timeLock)
+            {
+                --timeLock;
+                positioning(); ////////create_by_fan
+            }
             else // 机器人正式比赛了，进入start之后的机器人状态
             {
                 normalGame();
@@ -291,6 +361,53 @@ namespace nubot
         };
 
         goalKeeper gk;
+
+        void kickOff()
+        {
+            static int secure_count = 200; //防止不慎未接到球而卡死在kickoff模式
+            if (secure_count == 0)
+            {
+                kick_off = true;
+                secure_count = 200;
+            }
+            else
+            {
+                secure_count--;
+            }
+
+            if (!world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState() && isNearestRobot())
+            {
+
+                ROS_INFO("catch");
+
+                action_cmd_.handle_enable = 1;
+                action_cmd_.move_action = CatchBall;
+                action_cmd_.rotate_acton = CatchBall;
+                action_cmd_.rotate_mode = 0;
+                if (m_plan_.m_behaviour_.move2oriFAST((ball_pos_ - robot_pos_).angle().radian_, robot_ori_.radian_))
+                    m_plan_.m_behaviour_.move2target(ball_pos_, robot_pos_);
+            }
+            if (world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState())
+            {
+                double length = 10000.0;
+                int passID = 0;
+                int passMode = 0;
+                for (int i = 2; i <= 5; i++)
+                {
+                    if (!world_model_info_.RobotInfo_[i - 1].getDribbleState() && m_plan_.canPass(i) && (world_model_info_.RobotInfo_[i - 1].getLocation() - DPoint(1100.0, 0.0)).length() < length)
+                    {
+                        passID = i;
+                        length = (world_model_info_.RobotInfo_[i - 1].getLocation() - DPoint(1100.0, 0.0)).length();
+                        passMode = m_plan_.canPass(i);
+                    }
+                }
+
+                ROS_INFO("catch id %d pass_mode %d", passID, passMode);
+
+                kick_off = m_plan_.PassBall_Action(passID, passMode);
+                shoot_flag = kick_off;
+            }
+        }
 
         class _pid
         {
@@ -339,6 +456,32 @@ namespace nubot
             }
         };
 
+        void our_penalty()
+        {
+            isactive = 1;
+            if (kick_off == true)
+            {
+                action_cmd_.move_action = No_Action;
+            }
+            else
+            {
+                if (!world_model_info_.RobotInfo_[0].getDribbleState())
+                { // attention,if changing the kicker,this line also needs to be changed
+                    m_plan_.catchBall();
+                }
+                else
+                {
+                    shoot_flag = kick_off = m_plan_.penalty();
+                }
+            }
+        }
+
+        void opp_penalty()
+        {
+            gk(world_model_info_, robot_pos_, robot_ori_, ball_pos_, ball_vel_);
+            goal_keeper();
+        }
+
         int findNearestRobot()
         {
             double min_distance = 3000.0;
@@ -364,58 +507,184 @@ namespace nubot
 
         void positioning()
         {
-            switch (match_mode_)
+            int _mode = (match_mode_ == STARTROBOT) ? pre_match_mode_ : match_mode_;
+
+            switch (_mode)
             {
             case OUR_KICKOFF:
-                // OurkickoffReady_();
-                OurDefaultReady_();
+                OurkickoffReady_();
                 break;
             case OPP_KICKOFF:
-                // OppkickoffReady_();
-                OppDefaultReady_();
+                OppkickoffReady_();
                 break;
             case OUR_FREEKICK:
-                OurDefaultReady_();
+                OurfreekickReady_();
                 break;
             case OPP_FREEKICK:
-                // OppDefaultReady_();
-                OppDefaultReady_();
+                OppfreekickReady_();
                 break;
             case OUR_GOALKICK:
-                OurDefaultReady_();
+                OurGoalReady_();
                 break;
             case OPP_GOALKICK:
-                // OppDefaultReady_();
-                OppDefaultReady_();
+                OppGoalReady_();
                 break;
             case OUR_CORNERKICK:
-                OurDefaultReady_();
+                OurCornerReady_();
                 break;
             case OPP_CORNERKICK:
-                // OppDefaultReady_();
-                OppDefaultReady_();
+                OppCornerReady_();
                 break;
             case OUR_THROWIN:
-                OurDefaultReady_();
+                OurThrowinReady_();
                 break;
             case OPP_THROWIN:
-                // OppDefaultReady_();
-                OppDefaultReady_();
+                OppThrowinReady_();
                 break;
             case OUR_PENALTY:
-                // OurPenaltyReady_();
-                OurDefaultReady_();
+                OurPenaltyReady_();
                 break;
             case OPP_PENALTY:
-                // OppPenaltyReady_();
-                OppDefaultReady_();
+                OppPenaltyReady_();
                 break;
             case DROPBALL:
-                // DropBallReady_();
-                OurDefaultReady_();
+                DropBallReady_();
                 break;
             default:
                 break;
+            }
+        }
+
+        void OurkickoffReady_()
+        {
+            m_staticpass_.OurkickoffReady_();
+
+            m_plan_.moveAvoidBall(m_staticpass_.target_);
+        }
+
+        void OppkickoffReady_()
+        {
+            m_staticpass_.OppkickoffReady_();
+
+            m_plan_.moveAvoidBall(m_staticpass_.target_);
+        }
+
+        void OurfreekickReady_()
+        {
+            m_staticpass_.OurfreekickReady_();
+
+            m_plan_.moveAvoidBall(m_staticpass_.target_);
+        }
+
+        void OppfreekickReady_()
+        {
+            OppThrowinReady_();
+        }
+
+        void OurThrowinReady_()
+        {
+            m_staticpass_.OurThrowinReady_();
+
+            m_plan_.moveAvoidBall(m_staticpass_.target_);
+        }
+
+        void OppThrowinReady_()
+        {
+            m_staticpass_.OppThrowinReady_();
+
+            m_plan_.moveAvoidBall(m_staticpass_.target_);
+        }
+
+        void OurGoalReady_()
+        {
+            m_staticpass_.OurGoalReady_();
+
+            m_plan_.moveAvoidBall(m_staticpass_.target_);
+        }
+
+        void OppGoalReady_()
+        {
+            m_staticpass_.OppGoalReady_();
+
+            m_plan_.moveAvoidBall(m_staticpass_.target_);
+        }
+
+        void OurCornerReady_()
+        {
+            m_staticpass_.OurCornerReady_();
+
+            m_plan_.moveAvoidBall(m_staticpass_.target_);
+        }
+
+        void OppCornerReady_()
+        {
+            m_staticpass_.OppCornerReady_();
+
+            m_plan_.moveAvoidBall(m_staticpass_.target_);
+        }
+
+        void DropBallReady_()
+        {
+            m_staticpass_.DropBallReady_();
+
+            m_plan_.moveAvoidBall(m_staticpass_.target_);
+        }
+
+        void OurPenaltyReady_() //我方penalty发球
+        {
+            if (world_model_info_.AgentID_ == 1)
+            { // do not know if keeper can kick penalty ball,just try it
+                DPoint tar_pos = robot_pos_ /*(670.0,0.0)*/;
+                action_cmd_.move_action = CatchBall;
+                action_cmd_.rotate_acton = CatchBall;
+                action_cmd_.rotate_mode = 1;
+                m_plan_.m_behaviour_.move2targetk(tar_pos, robot_pos_, 20.0, 1);
+                m_plan_.m_behaviour_.move2oriFAST((ball_pos_ - robot_pos_).angle().radian_, robot_ori_.radian_);
+            }
+            else
+            {
+                parking();
+            }
+        }
+
+        void OppPenaltyReady_() //对方penalty发球
+        {
+            if (world_model_info_.AgentID_ != 1)
+            {
+                parking();
+            }
+            else
+            {
+                DPoint b2r = ball_pos_ - robot_pos_;
+                m_plan_.m_behaviour_.move2oriFAST(b2r.angle().radian_, robot_ori_.radian_, 0.0 * DEG2RAD, ball_pos_, 20.0);
+                action_cmd_.rotate_acton = CatchBall;
+                action_cmd_.rotate_mode = 0;
+                DPoint keeper_pos_ = robot_pos_;
+                keeper_pos_.x_ = -1090.0;
+
+                DPoint up_pos_;
+                up_pos_.x_ = -1090.0; //
+
+                DPoint low_pos_;
+                low_pos_.x_ = -1090.0; //
+
+                double y = 0;
+                y = ball_pos_.y_ - ((ball_pos_.x_ - robot_pos_.x_) * (ball_vel_.y_ / ball_vel_.x_));
+
+                if (y >= -125 && y <= 125 && ball_vel_.length() > 0.1)
+                {
+                    isactive = true;
+                    action_cmd_.move_action = CatchBall;
+                    keeper_pos_.y_ = y;
+                    m_plan_.m_behaviour_.move2targetk(keeper_pos_, robot_pos_, 20.0, 5);
+                }
+                else
+                {
+                    isactive = true;
+                    action_cmd_.move_action = CatchBall;
+                    DPoint keeper_pos_wait_(-1090.0, 0.0);
+                    m_plan_.m_behaviour_.move2targetk(keeper_pos_wait_, robot_pos_, 20.0, 5);
+                }
             }
         }
 
@@ -426,7 +695,7 @@ namespace nubot
             switch (world_model_info_.AgentID_) // 十分简单的实现，固定的站位，建议动态调整站位，写入staticpass.cpp中
             {                                   // 站位还需要考虑是否犯规，但是现在这个程序没有考虑。
             case 1:
-                target = DPoint(-1050.0, 0.0);
+                target = DPoint(-1090.0, 0.0);
                 break;
             case 2:
                 target = DPoint(-200.0, 100.0);
@@ -457,7 +726,7 @@ namespace nubot
             switch (world_model_info_.AgentID_) // 十分简单的实现，固定的站位，建议动态调整站位，写入staticpass.cpp中
             {                                   // 站位还需要考虑是否犯规，但是现在这个程序没有考虑。
             case 1:
-                target = DPoint(-1050.0, 0.0);
+                target = DPoint(-1090.0, 0.0);
                 break;
             case 2:
                 target = DPoint(-600, 300);
@@ -539,14 +808,14 @@ namespace nubot
                     //运动到入网点
                     double k1 = ball_vel_.y_ / ball_vel_.x_;
                     double b1 = ball_pos_.y_ - k1 * ball_pos_.x_;
-                    double target_y = k1 * (-1050.0) + b1;
+                    double target_y = k1 * (-1090.0) + b1;
                     if (fabs(target_y) < 135)
                     {
                         action_cmd_.handle_enable = 1;
                         action_cmd_.move_action = CatchBall;
                         action_cmd_.rotate_acton = CatchBall;
                         action_cmd_.rotate_mode = 0;
-                        m_plan_.m_behaviour_.move2targetFast(DPoint(-1050.0, target_y), robot_pos_);
+                        m_plan_.m_behaviour_.move2targetFast(DPoint(-1090.0, target_y), robot_pos_);
                         m_plan_.m_behaviour_.move2orif(b2r.angle().radian_, robot_ori_.radian_);
                     }
                     // double k2 = -1.0 / k1;
@@ -696,13 +965,25 @@ namespace nubot
 
         void normalGame()
         {
-
+            memset(m_plan_.opp_defended, false, sizeof(m_plan_.opp_defended));
             memset(m_plan_.defend_occupied, false, sizeof(m_plan_.defend_occupied));
             memset(m_plan_.attack_occupied, false, sizeof(m_plan_.attack_occupied));
 
-            // end
+            isactive = true;
+
             static bool last_dribble = 0;
-            isactive = false;
+            if (world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState() != last_dribble)
+            {
+                ROS_INFO("change::");
+                if (last_dribble == 0)
+                {
+                    m_plan_.startPoint = robot_pos_;
+                }
+            }
+
+            last_dribble = world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState();
+
+            // isactive = false;
 
             if (world_model_info_.AgentID_ == 1)
             {
@@ -711,397 +992,409 @@ namespace nubot
                 goal_keeper();
             }
 
-            // end
-            else if (world_model_info_.AgentID_ == 2)
-            {
-                ROS_INFO("ball_v = %lf", ball_vel_.length());
-                //选择二号为接球射门机器人
-                action_cmd_.move_action = No_Action;
-                action_cmd_.rotate_acton = No_Action;
-
-                DPoint tmp(-900, 0);
-                //射门目标点
-                isactive = true;
-
-                DPoint r2b = ball_pos_ - robot_pos_;
-                DPoint r2t = tmp - robot_pos_;
-
-                if (!shoot_flag)
-                {
-                    if (last_dribble != world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState())
-                    {
-                        ROS_INFO("change::");
-                        if (last_dribble == 0)
-                            m_plan_.startPoint = robot_pos_;
-
-                        // ROS_INFO("tx = %lf, ty = %lf", m_plan_.startPoint.x_, m_plan_.startPoint.y_);
-                    }
-
-                    last_dribble = world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState();
-
-                    if (ball_is_free() && robot_pos_.distance(ball_pos_) <= 75.0)
-                    {
-                        m_plan_.catchBall();
-                    }
-
-                    // 接球
-                    if (world_model_info_.pass_state_.catch_id_ == world_model_info_.AgentID_)
-                    {
-                        m_plan_.CatchPassedBall();
-                    }
-                    // {
-                    //     // auto dis = robot_pos_.distance(world_model_info_.RobotInfo_[world_model_info_.pass_state_.pass_id_ - 1].getLocation());
-
-                    //     action_cmd_.rotate_acton = CatchBall;
-                    //     action_cmd_.move_action = No_Action;
-                    //     action_cmd_.rotate_mode = 0;
-                    //     // move2target(robot_pos_, robot_pos_);
-                    //     m_plan_.m_behaviour_.move2orif(r2b.angle().radian_, robot_ori_.radian_, 0.087);
-
-                    //     DPoint headoffPoint;
-                    //     //垂直运动球路径
-                    //     if (ball_vel_.length())
-                    //     {
-                    //         action_cmd_.move_action = CatchBall;
-                    //         double k1 = ball_vel_.y_ / ball_vel_.x_;
-                    //         double b1 = ball_pos_.y_ - k1 * ball_pos_.x_;
-                    //         double k2 = -1.0 / k1;
-                    //         double b2 = robot_pos_.y_ - k2 * robot_pos_.x_;
-                    //         headoffPoint = DPoint((b2 - b1) / (k1 - k2), (k1 * b2 - k2 * b1) / (k1 - k2));
-                    //     }
-
-                    //     //运动到接球点
-                    //     if (m_plan_.m_behaviour_.move2target(headoffPoint, robot_pos_))
-                    //     {
-                    //         //接球
-                    //         if (robot_pos_.distance(ball_pos_) <= 250.0 && !world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState() && !world_model_info_.RobotInfo_[world_model_info_.pass_state_.pass_id_ - 1].getDribbleState())
-                    //         {
-                    //             action_cmd_.handle_enable = 1;
-                    //             action_cmd_.move_action = CatchBall;
-                    //             action_cmd_.rotate_acton = CatchBall;
-                    //             action_cmd_.rotate_mode = 0;
-                    //             if (mv2orif_e1(r2b.angle().radian_, robot_ori_.radian_))
-                    //                 m_plan_.m_behaviour_.move2target(ball_pos_, robot_pos_);
-                    //         }
-                    //     }
-
-                    //     // ?
-                    //     if (whichopp_dribble() >= 0)
-                    //         world_model_info_.pass_state_.reset();
-                    // }
-
-                    if (world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState())
-                    {
-
-                        // plan to call attack_1()
-
-                        if (robot_pos_.distance(tmp) > 25.0)
-                        {
-                            // m_plan_.moveBall(tmp);
-                            action_cmd_.move_action = MoveWithBall;
-                            action_cmd_.rotate_acton = MoveWithBall;
-                            action_cmd_.rotate_mode = 0;
-                            if (mv2orif_e1(r2t.angle().radian_, robot_ori_.radian_))
-                                m_plan_.m_behaviour_.move2target(tmp, robot_pos_);
-                        }
-
-                        else
-                        {
-                            // m_plan_.shoot_1(shoot_flag);
-                            action_cmd_.move_action = TurnForShoot;
-                            action_cmd_.rotate_acton = TurnForShoot;
-                            action_cmd_.rotate_mode = 0;
-                            static DPoint shoot_target = shootPot();
-                            auto shoot_line = shoot_target - robot_pos_;
-                            m_plan_.m_behaviour_.move2target(tmp, robot_pos_);
-                            m_plan_.m_behaviour_.move2oriFAST(shoot_line.angle().radian_, robot_ori_.radian_, 0.087, {0.0, 0.0}, 20.0, 50.0);
-
-                            {
-                                //求出球的运动轨迹方程
-                                double t_x = robot_pos_.x_, t_y = robot_pos_.y_;
-                                auto k = tan(robot_ori_.radian_);
-                                double b = t_y - k * t_x;
-                                //与 x = -1100 的交点
-                                double y0 = -1100.0 * k + b;
-
-                                bool b1 = robot_ori_.radian_ / DEG2RAD >= 90.0 || robot_ori_.radian_ / DEG2RAD <= -90.0;
-                                if (b1 && y0 <= 95 && y0 >= -95 && fabs(y0 - world_model_info_.RobotInfo_[0].getLocation().y_) >= 66.0)
-                                {
-                                    action_cmd_.shootPos = RUN /*FLY*/;
-                                    action_cmd_.strength = 500;
-                                    shoot_flag = true;
-                                    std::cout << "shoot done " << std::endl;
-                                }
-                                if (fabs(shoot_line.angle().radian_ - robot_ori_.radian_) <= 0.10)
-                                {
-                                    if (shoot_target == world_model_info_.field_info_.ourGoal_[GOAL_UPPER])
-                                        shoot_target = world_model_info_.field_info_.ourGoal_[GOAL_LOWER];
-                                    else
-                                        shoot_target = world_model_info_.field_info_.ourGoal_[GOAL_UPPER];
-                                }
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    action_cmd_.move_action = No_Action;
-                    action_cmd_.rotate_acton = No_Action;
-                    if (shoot_flag)
-                        shoot_count++;
-                    if (shoot_count > 50)
-                    {
-                        shoot_count = 0;
-                        shoot_flag = false;
-                    }
-                }
-
-                // //接收者
-                // if (world_model_info_.pass_state_.catch_id_ == world_model_info_.AgentID_)
-                // {
-
-                //     //吊射球
-                //     DPoint target = robot_pos_;
-                //     if (mv2orif_e1(b2r.angle().radian_, robot_ori_.radian_))
-                //     {
-                //         //已踢出
-                //         if (!world_model_info_.RobotInfo_[world_model_info_.pass_state_.pass_id_ - 1].getDribbleState())
-                //         {
-                //             double k1 = ball_vel_.y_ / ball_vel_.x_;
-                //             double b1 = ball_pos_.y_ - k1 * ball_pos_.x_;
-                //             double k2 = -1.0 / k1;
-                //             double b2 = robot_pos_.y_ - k2 * robot_pos_.x_;
-                //             target = DPoint((b2 - b1) / (k1 - k2), (k1 * b2 - k2 * b1) / (k1 - k2));
-                //             move2target(target, robot_pos_);
-                //             // if (ball_pos_.distance(robot_pos_) <= 200 || !ball_is_free())
-                //             //     world_model_info_.pass_state_.reset();
-                //         }
-                //     }
-                // }
-                // else
-                // {
-                //     if (!shoot_flag)
-                //     {
-                //         DPoint t2r = tmp - robot_pos_;
-                //         // DPoint shoot_line = world_model_info_.field_info_.ourGoal_[GOAL_MIDDLE] - robot_pos_;
-                //         if (last_dribble != world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState())
-                //             ROS_INFO("change::");
-                //         last_dribble = world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState();
-                //         if (!world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState())
-                //         {
-                //             action_cmd_.handle_enable = 1;
-                //             if (mv2orif_e1(b2r.angle().radian_, robot_ori_.radian_))
-                //                 move2target(ball_pos_, robot_pos_);
-                //             action_cmd_.move_action = CatchBall;
-                //             action_cmd_.rotate_acton = CatchBall;
-                //             action_cmd_.rotate_mode = 0;
-                //         }
-                //         else if (robot_pos_.distance(tmp) > 25.0)
-                //         {
-                //             action_cmd_.move_action = MoveWithBall;
-                //             action_cmd_.rotate_acton = MoveWithBall;
-                //             action_cmd_.rotate_mode = 0;
-                //             if (mv2orif_e1(t2r.angle().radian_, robot_ori_.radian_))
-                //                 move2target(tmp, robot_pos_);
-                //         }
-                //         else
-                //         {
-                //             action_cmd_.move_action = TurnForShoot;
-                //             action_cmd_.rotate_acton = TurnForShoot;
-                //             action_cmd_.rotate_mode = 0;
-
-                //             static DPoint shoot_target = pre_for_shoot();
-                //             // DPoint mid((d1.x_ + d2.x_) / 2.0, (d1.y_ + d2.y_) / 2.0);
-                //             // auto shoot_line = mid - robot_pos_;
-                //             auto shoot_line = shoot_target - robot_pos_;
-                //             move2target(tmp, robot_pos_);
-                //             mv2orif_e1(shoot_line.angle().radian_, robot_ori_.radian_);
-
-                //             {
-                //                 // double low_radian_ = (d1 - robot_pos_).angle().radian_;
-                //                 // double up_radian_ = (d2 - robot_pos_).angle().radian_;
-                //                 // if (low_radian_ > up_radian_)
-                //                 //     std::swap(low_radian_, up_radian_);
-
-                //                 //求出球的运动轨迹方程
-                //                 double t_x = robot_pos_.x_, t_y = robot_pos_.y_;
-                //                 auto k = tan(robot_ori_.radian_);
-                //                 double b = t_y - k * t_x;
-                //                 //与 x = -1100 的交点
-                //                 double y0 = -1100.0 * k + b;
-
-                //                 bool b1 = robot_ori_.radian_ / DEG2RAD >= 90.0 || robot_ori_.radian_ / DEG2RAD <= -90.0;
-                //                 if (b1 && y0 <= 95 && y0 >= -95 && fabs(y0 - world_model_info_.RobotInfo_[0].getLocation().y_) >= 66.0)
-                //                 {
-                //                     action_cmd_.shootPos = RUN /*FLY*/;
-                //                     action_cmd_.strength = shoot_line.length() / 15;
-                //                     if (action_cmd_.strength < 10.0)
-                //                         action_cmd_.strength = 10.0;
-                //                     shoot_flag = true;
-                //                     std::cout << "shoot done " << std::endl;
-                //                 }
-                //                 if (fabs(shoot_line.angle().radian_ - robot_ori_.radian_) <= 0.10)
-                //                 {
-                //                     if (shoot_target == world_model_info_.field_info_.ourGoal_[GOAL_UPPER])
-                //                         shoot_target = world_model_info_.field_info_.ourGoal_[GOAL_LOWER];
-                //                     else
-                //                         shoot_target = world_model_info_.field_info_.ourGoal_[GOAL_UPPER];
-                //                 }
-                //             }
-                //         }
-                //     }
-
-                //     else
-                //     {
-                //         action_cmd_.move_action = No_Action;
-                //         action_cmd_.rotate_acton = No_Action;
-                //         if (shoot_flag)
-                //             shoot_count++;
-                //         if (shoot_count > 20)
-                //         {
-                //             shoot_count = 0;
-                //             shoot_flag = false;
-                //         }
-                //     }
-                // }
-            }
-
-            else if (world_model_info_.AgentID_ == 3)
-            {
-                // nubot3 test pass ball
-                isactive = true;
-                // catch ball
-                if (!shoot_flag)
-                {
-                    DPoint r2b = ball_pos_ - robot_pos_;
-                    if (last_dribble != world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState())
-                    {
-                        ROS_INFO("change::");
-                        if (last_dribble == 0)
-                            m_plan_.startPoint = robot_pos_;
-                    }
-
-                    if (world_model_info_.pass_state_.catch_id_ == world_model_info_.AgentID_)
-                    {
-                        ROS_INFO("receive");
-                        m_plan_.CatchPassedBall();
-                    }
-
-                    last_dribble = world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState();
-
-                    if (ball_is_free() && !last_dribble)
-                    {
-                        action_cmd_.handle_enable = 1;
-                        if (m_plan_.m_behaviour_.move2oriFAST(r2b.angle().radian_, robot_ori_.radian_, 0.087))
-                            m_plan_.m_behaviour_.move2target(ball_pos_, robot_pos_);
-                        action_cmd_.move_action = CatchBall;
-                        action_cmd_.rotate_acton = CatchBall;
-                        action_cmd_.rotate_mode = 0;
-                    }
-                    // passball
-                    else if (last_dribble)
-                    {
-                        int pass__mode = m_plan_.canPass(2);
-                        // auto pass_vec_ = world_model_info_.RobotInfo_[1].getLocation() - robot_pos_;
-
-                        // if (pass_vec_.length() > 650)
-                        //     pass__mode = FLY;
-
-                        if(pass__mode)
-                            shoot_flag = m_plan_.PassBall_Action(2, pass__mode);
-                        else 
-                            shoot_flag = m_plan_.PassBall_Action(4, 1);
-                    }
-                }
-                else
-                {
-                    action_cmd_.move_action = No_Action;
-                    action_cmd_.rotate_acton = No_Action;
-                    if (shoot_flag)
-                        shoot_count++;
-                    if (shoot_count > 60)
-                    {
-                        shoot_count = 0;
-                        shoot_flag = false;
-                    }
-                }
-            }
-
             else
             {
-                //m_plan_.m_behaviour_.selfRotate(robot_ori_.radian_);
-                if (world_model_info_.AgentID_ != 1 && isNearestRobot())
+                if (whichopp_dribble() >= 0 || ball_is_free()) //对方持球或球自由
                 {
-                    isactive = true;
-                }
-                if (isactive && !shoot_flag)
-                {
-                    DPoint b2r = ball_pos_ - robot_pos_;
-                    DPoint tmp(500.0, 200.0);
-                    DPoint t2r = tmp - robot_pos_;
-                    DPoint shoot_line = world_model_info_.field_info_.oppGoal_[GOAL_MIDDLE] - robot_pos_;
-                    if (last_dribble != world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState())
-                    {
-                        if (last_dribble == 0)
-                            m_plan_.startPoint = robot_pos_;
-                        ROS_INFO("change::");
-                    }
-
-                    last_dribble = world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState();
-
-                    if (!world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState())
-                    {
-                        action_cmd_.handle_enable = 1;
-                        if (move2ori(b2r.angle().radian_, robot_ori_.radian_))
-                            move2target(ball_pos_, robot_pos_);
-                        action_cmd_.move_action = CatchBall;
-                        action_cmd_.rotate_acton = CatchBall;
-                        action_cmd_.rotate_mode = 0;
-                    }
-                    else if (robot_pos_.distance(tmp) > 30.0)
-                    {
-                        action_cmd_.move_action = MoveWithBall;
-                        action_cmd_.rotate_acton = MoveWithBall;
-                        action_cmd_.rotate_mode = 0;
-                        if (move2ori(t2r.angle().radian_, robot_ori_.radian_))
-                            move2target(tmp, robot_pos_);
-                    }
-                    else
-                    {
-                        action_cmd_.move_action = TurnForShoot;
-                        action_cmd_.rotate_acton = TurnForShoot;
-                        action_cmd_.rotate_mode = 0;
-                        move2target(tmp, robot_pos_);
-                        move2ori(shoot_line.angle().radian_, robot_ori_.radian_);
-
-                        {
-                            double up_radian_ = (world_model_info_.field_info_.oppGoal_[GOAL_MIDUPPER] - robot_pos_).angle().radian_;
-                            double low_radian_ = (world_model_info_.field_info_.oppGoal_[GOAL_MIDLOWER] - robot_pos_).angle().radian_;
-                            if (robot_ori_.radian_ > low_radian_ && robot_ori_.radian_ < up_radian_)
-                            {
-                                action_cmd_.shootPos = RUN /*FLY*/;
-                                action_cmd_.strength = shoot_line.length() / 25.0;
-                                if (action_cmd_.strength < 15.0)
-                                    action_cmd_.strength = 15.0;
-                                shoot_flag = true;
-                                std::cout << "shoot done " << std::endl;
-                            }
-                        }
-                    }
+                    m_plan_.defend();
                 }
                 else
                 {
-                    action_cmd_.move_action = No_Action;
-                    action_cmd_.rotate_acton = No_Action;
-                    if (shoot_flag)
-                        shoot_count++;
-                    if (shoot_count > 20)
-                    {
-                        shoot_count = 0;
-                        shoot_flag = false;
-                    }
+                    m_plan_.attack();
                 }
             }
+
+            // end
+            // else if (world_model_info_.AgentID_ == 2)
+            // {
+            //     ROS_INFO("ball_v = %lf", ball_vel_.length());
+            //     //选择二号为接球射门机器人
+            //     action_cmd_.move_action = No_Action;
+            //     action_cmd_.rotate_acton = No_Action;
+
+            //     DPoint tmp(-900, 0);
+            //     //射门目标点
+            //     isactive = true;
+
+            //     DPoint r2b = ball_pos_ - robot_pos_;
+            //     DPoint r2t = tmp - robot_pos_;
+
+            //     if (!shoot_flag)
+            //     {
+            //         if (last_dribble != world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState())
+            //         {
+            //             ROS_INFO("change::");
+            //             if (last_dribble == 0)
+            //                 m_plan_.startPoint = robot_pos_;
+
+            //             // ROS_INFO("tx = %lf, ty = %lf", m_plan_.startPoint.x_, m_plan_.startPoint.y_);
+            //         }
+
+            //         last_dribble = world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState();
+
+            //         if (ball_is_free() && robot_pos_.distance(ball_pos_) <= 75.0)
+            //         {
+            //             m_plan_.catchBall();
+            //         }
+
+            //         // 接球
+            //         if (world_model_info_.pass_state_.catch_id_ == world_model_info_.AgentID_)
+            //         {
+            //             m_plan_.CatchPassedBall();
+            //         }
+            //         // {
+            //         //     // auto dis = robot_pos_.distance(world_model_info_.RobotInfo_[world_model_info_.pass_state_.pass_id_ - 1].getLocation());
+
+            //         //     action_cmd_.rotate_acton = CatchBall;
+            //         //     action_cmd_.move_action = No_Action;
+            //         //     action_cmd_.rotate_mode = 0;
+            //         //     // move2target(robot_pos_, robot_pos_);
+            //         //     m_plan_.m_behaviour_.move2orif(r2b.angle().radian_, robot_ori_.radian_, 0.087);
+
+            //         //     DPoint headoffPoint;
+            //         //     //垂直运动球路径
+            //         //     if (ball_vel_.length())
+            //         //     {
+            //         //         action_cmd_.move_action = CatchBall;
+            //         //         double k1 = ball_vel_.y_ / ball_vel_.x_;
+            //         //         double b1 = ball_pos_.y_ - k1 * ball_pos_.x_;
+            //         //         double k2 = -1.0 / k1;
+            //         //         double b2 = robot_pos_.y_ - k2 * robot_pos_.x_;
+            //         //         headoffPoint = DPoint((b2 - b1) / (k1 - k2), (k1 * b2 - k2 * b1) / (k1 - k2));
+            //         //     }
+
+            //         //     //运动到接球点
+            //         //     if (m_plan_.m_behaviour_.move2target(headoffPoint, robot_pos_))
+            //         //     {
+            //         //         //接球
+            //         //         if (robot_pos_.distance(ball_pos_) <= 250.0 && !world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState() && !world_model_info_.RobotInfo_[world_model_info_.pass_state_.pass_id_ - 1].getDribbleState())
+            //         //         {
+            //         //             action_cmd_.handle_enable = 1;
+            //         //             action_cmd_.move_action = CatchBall;
+            //         //             action_cmd_.rotate_acton = CatchBall;
+            //         //             action_cmd_.rotate_mode = 0;
+            //         //             if (mv2orif_e1(r2b.angle().radian_, robot_ori_.radian_))
+            //         //                 m_plan_.m_behaviour_.move2target(ball_pos_, robot_pos_);
+            //         //         }
+            //         //     }
+
+            //         //     // ?
+            //         //     if (whichopp_dribble() >= 0)
+            //         //         world_model_info_.pass_state_.reset();
+            //         // }
+
+            //         if (world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState())
+            //         {
+
+            //             // plan to call attack_1()
+
+            //             if (robot_pos_.distance(tmp) > 25.0)
+            //             {
+            //                 // m_plan_.moveBall(tmp);
+            //                 action_cmd_.move_action = MoveWithBall;
+            //                 action_cmd_.rotate_acton = MoveWithBall;
+            //                 action_cmd_.rotate_mode = 0;
+            //                 if (mv2orif_e1(r2t.angle().radian_, robot_ori_.radian_))
+            //                     m_plan_.m_behaviour_.move2target(tmp, robot_pos_);
+            //             }
+
+            //             else
+            //             {
+            //                 // m_plan_.shoot_1(shoot_flag);
+            //                 action_cmd_.move_action = TurnForShoot;
+            //                 action_cmd_.rotate_acton = TurnForShoot;
+            //                 action_cmd_.rotate_mode = 0;
+            //                 static DPoint shoot_target = shootPot();
+            //                 auto shoot_line = shoot_target - robot_pos_;
+            //                 m_plan_.m_behaviour_.move2target(tmp, robot_pos_);
+            //                 m_plan_.m_behaviour_.move2oriFAST(shoot_line.angle().radian_, robot_ori_.radian_, 0.087, {0.0, 0.0}, 20.0, 50.0);
+
+            //                 {
+            //                     //求出球的运动轨迹方程
+            //                     double t_x = robot_pos_.x_, t_y = robot_pos_.y_;
+            //                     auto k = tan(robot_ori_.radian_);
+            //                     double b = t_y - k * t_x;
+            //                     //与 x = -1100 的交点
+            //                     double y0 = -1100.0 * k + b;
+
+            //                     bool b1 = robot_ori_.radian_ / DEG2RAD >= 90.0 || robot_ori_.radian_ / DEG2RAD <= -90.0;
+            //                     if (b1 && y0 <= 95 && y0 >= -95 && fabs(y0 - world_model_info_.RobotInfo_[0].getLocation().y_) >= 66.0)
+            //                     {
+            //                         action_cmd_.shootPos = RUN /*FLY*/;
+            //                         action_cmd_.strength = 500;
+            //                         shoot_flag = true;
+            //                         std::cout << "shoot done " << std::endl;
+            //                     }
+            //                     if (fabs(shoot_line.angle().radian_ - robot_ori_.radian_) <= 0.10)
+            //                     {
+            //                         if (shoot_target == world_model_info_.field_info_.ourGoal_[GOAL_UPPER])
+            //                             shoot_target = world_model_info_.field_info_.ourGoal_[GOAL_LOWER];
+            //                         else
+            //                             shoot_target = world_model_info_.field_info_.ourGoal_[GOAL_UPPER];
+            //                     }
+            //                 }
+            //             }
+            //         }
+            //     }
+            //     else
+            //     {
+            //         action_cmd_.move_action = No_Action;
+            //         action_cmd_.rotate_acton = No_Action;
+            //         if (shoot_flag)
+            //             shoot_count++;
+            //         if (shoot_count > 50)
+            //         {
+            //             shoot_count = 0;
+            //             shoot_flag = false;
+            //         }
+            //     }
+
+            //     // //接收者
+            //     // if (world_model_info_.pass_state_.catch_id_ == world_model_info_.AgentID_)
+            //     // {
+
+            //     //     //吊射球
+            //     //     DPoint target = robot_pos_;
+            //     //     if (mv2orif_e1(b2r.angle().radian_, robot_ori_.radian_))
+            //     //     {
+            //     //         //已踢出
+            //     //         if (!world_model_info_.RobotInfo_[world_model_info_.pass_state_.pass_id_ - 1].getDribbleState())
+            //     //         {
+            //     //             double k1 = ball_vel_.y_ / ball_vel_.x_;
+            //     //             double b1 = ball_pos_.y_ - k1 * ball_pos_.x_;
+            //     //             double k2 = -1.0 / k1;
+            //     //             double b2 = robot_pos_.y_ - k2 * robot_pos_.x_;
+            //     //             target = DPoint((b2 - b1) / (k1 - k2), (k1 * b2 - k2 * b1) / (k1 - k2));
+            //     //             move2target(target, robot_pos_);
+            //     //             // if (ball_pos_.distance(robot_pos_) <= 200 || !ball_is_free())
+            //     //             //     world_model_info_.pass_state_.reset();
+            //     //         }
+            //     //     }
+            //     // }
+            //     // else
+            //     // {
+            //     //     if (!shoot_flag)
+            //     //     {
+            //     //         DPoint t2r = tmp - robot_pos_;
+            //     //         // DPoint shoot_line = world_model_info_.field_info_.ourGoal_[GOAL_MIDDLE] - robot_pos_;
+            //     //         if (last_dribble != world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState())
+            //     //             ROS_INFO("change::");
+            //     //         last_dribble = world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState();
+            //     //         if (!world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState())
+            //     //         {
+            //     //             action_cmd_.handle_enable = 1;
+            //     //             if (mv2orif_e1(b2r.angle().radian_, robot_ori_.radian_))
+            //     //                 move2target(ball_pos_, robot_pos_);
+            //     //             action_cmd_.move_action = CatchBall;
+            //     //             action_cmd_.rotate_acton = CatchBall;
+            //     //             action_cmd_.rotate_mode = 0;
+            //     //         }
+            //     //         else if (robot_pos_.distance(tmp) > 25.0)
+            //     //         {
+            //     //             action_cmd_.move_action = MoveWithBall;
+            //     //             action_cmd_.rotate_acton = MoveWithBall;
+            //     //             action_cmd_.rotate_mode = 0;
+            //     //             if (mv2orif_e1(t2r.angle().radian_, robot_ori_.radian_))
+            //     //                 move2target(tmp, robot_pos_);
+            //     //         }
+            //     //         else
+            //     //         {
+            //     //             action_cmd_.move_action = TurnForShoot;
+            //     //             action_cmd_.rotate_acton = TurnForShoot;
+            //     //             action_cmd_.rotate_mode = 0;
+
+            //     //             static DPoint shoot_target = pre_for_shoot();
+            //     //             // DPoint mid((d1.x_ + d2.x_) / 2.0, (d1.y_ + d2.y_) / 2.0);
+            //     //             // auto shoot_line = mid - robot_pos_;
+            //     //             auto shoot_line = shoot_target - robot_pos_;
+            //     //             move2target(tmp, robot_pos_);
+            //     //             mv2orif_e1(shoot_line.angle().radian_, robot_ori_.radian_);
+
+            //     //             {
+            //     //                 // double low_radian_ = (d1 - robot_pos_).angle().radian_;
+            //     //                 // double up_radian_ = (d2 - robot_pos_).angle().radian_;
+            //     //                 // if (low_radian_ > up_radian_)
+            //     //                 //     std::swap(low_radian_, up_radian_);
+
+            //     //                 //求出球的运动轨迹方程
+            //     //                 double t_x = robot_pos_.x_, t_y = robot_pos_.y_;
+            //     //                 auto k = tan(robot_ori_.radian_);
+            //     //                 double b = t_y - k * t_x;
+            //     //                 //与 x = -1100 的交点
+            //     //                 double y0 = -1100.0 * k + b;
+
+            //     //                 bool b1 = robot_ori_.radian_ / DEG2RAD >= 90.0 || robot_ori_.radian_ / DEG2RAD <= -90.0;
+            //     //                 if (b1 && y0 <= 95 && y0 >= -95 && fabs(y0 - world_model_info_.RobotInfo_[0].getLocation().y_) >= 66.0)
+            //     //                 {
+            //     //                     action_cmd_.shootPos = RUN /*FLY*/;
+            //     //                     action_cmd_.strength = shoot_line.length() / 15;
+            //     //                     if (action_cmd_.strength < 10.0)
+            //     //                         action_cmd_.strength = 10.0;
+            //     //                     shoot_flag = true;
+            //     //                     std::cout << "shoot done " << std::endl;
+            //     //                 }
+            //     //                 if (fabs(shoot_line.angle().radian_ - robot_ori_.radian_) <= 0.10)
+            //     //                 {
+            //     //                     if (shoot_target == world_model_info_.field_info_.ourGoal_[GOAL_UPPER])
+            //     //                         shoot_target = world_model_info_.field_info_.ourGoal_[GOAL_LOWER];
+            //     //                     else
+            //     //                         shoot_target = world_model_info_.field_info_.ourGoal_[GOAL_UPPER];
+            //     //                 }
+            //     //             }
+            //     //         }
+            //     //     }
+
+            //     //     else
+            //     //     {
+            //     //         action_cmd_.move_action = No_Action;
+            //     //         action_cmd_.rotate_acton = No_Action;
+            //     //         if (shoot_flag)
+            //     //             shoot_count++;
+            //     //         if (shoot_count > 20)
+            //     //         {
+            //     //             shoot_count = 0;
+            //     //             shoot_flag = false;
+            //     //         }
+            //     //     }
+            //     // }
+            // }
+
+            // else if (world_model_info_.AgentID_ == 3)
+            // {
+            //     // nubot3 test pass ball
+            //     isactive = true;
+            //     // catch ball
+            //     if (!shoot_flag)
+            //     {
+            //         DPoint r2b = ball_pos_ - robot_pos_;
+            //         if (last_dribble != world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState())
+            //         {
+            //             ROS_INFO("change::");
+            //             if (last_dribble == 0)
+            //                 m_plan_.startPoint = robot_pos_;
+            //         }
+
+            //         if (world_model_info_.pass_state_.catch_id_ == world_model_info_.AgentID_)
+            //         {
+            //             ROS_INFO("receive");
+            //             m_plan_.CatchPassedBall();
+            //         }
+
+            //         last_dribble = world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState();
+
+            //         if (ball_is_free() && !last_dribble)
+            //         {
+            //             action_cmd_.handle_enable = 1;
+            //             if (m_plan_.m_behaviour_.move2oriFAST(r2b.angle().radian_, robot_ori_.radian_, 0.087))
+            //                 m_plan_.m_behaviour_.move2target(ball_pos_, robot_pos_);
+            //             action_cmd_.move_action = CatchBall;
+            //             action_cmd_.rotate_acton = CatchBall;
+            //             action_cmd_.rotate_mode = 0;
+            //         }
+            //         // passball
+            //         else if (last_dribble)
+            //         {
+            //             int pass__mode = m_plan_.canPass(2);
+            //             // auto pass_vec_ = world_model_info_.RobotInfo_[1].getLocation() - robot_pos_;
+
+            //             // if (pass_vec_.length() > 650)
+            //             //     pass__mode = FLY;
+
+            //             if (pass__mode)
+            //                 shoot_flag = m_plan_.PassBall_Action(2, pass__mode);
+            //             else
+            //                 shoot_flag = m_plan_.PassBall_Action(4, 1);
+            //         }
+            //     }
+            //     else
+            //     {
+            //         action_cmd_.move_action = No_Action;
+            //         action_cmd_.rotate_acton = No_Action;
+            //         if (shoot_flag)
+            //             shoot_count++;
+            //         if (shoot_count > 60)
+            //         {
+            //             shoot_count = 0;
+            //             shoot_flag = false;
+            //         }
+            //     }
+            // }
+
+            // else
+            // {
+            //     // m_plan_.m_behaviour_.selfRotate(robot_ori_.radian_);
+            //     if (world_model_info_.AgentID_ != 1 && isNearestRobot())
+            //     {
+            //         isactive = true;
+            //     }
+            //     if (isactive && !shoot_flag)
+            //     {
+            //         DPoint b2r = ball_pos_ - robot_pos_;
+            //         DPoint tmp(500.0, 200.0);
+            //         DPoint t2r = tmp - robot_pos_;
+            //         DPoint shoot_line = world_model_info_.field_info_.oppGoal_[GOAL_MIDDLE] - robot_pos_;
+            //         if (last_dribble != world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState())
+            //         {
+            //             if (last_dribble == 0)
+            //                 m_plan_.startPoint = robot_pos_;
+            //             ROS_INFO("change::");
+            //         }
+
+            //         last_dribble = world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState();
+
+            //         if (!world_model_info_.RobotInfo_[world_model_info_.AgentID_ - 1].getDribbleState())
+            //         {
+            //             action_cmd_.handle_enable = 1;
+            //             if (move2ori(b2r.angle().radian_, robot_ori_.radian_))
+            //                 move2target(ball_pos_, robot_pos_);
+            //             action_cmd_.move_action = CatchBall;
+            //             action_cmd_.rotate_acton = CatchBall;
+            //             action_cmd_.rotate_mode = 0;
+            //         }
+            //         else if (robot_pos_.distance(tmp) > 30.0)
+            //         {
+            //             action_cmd_.move_action = MoveWithBall;
+            //             action_cmd_.rotate_acton = MoveWithBall;
+            //             action_cmd_.rotate_mode = 0;
+            //             if (move2ori(t2r.angle().radian_, robot_ori_.radian_))
+            //                 move2target(tmp, robot_pos_);
+            //         }
+            //         else
+            //         {
+            //             action_cmd_.move_action = TurnForShoot;
+            //             action_cmd_.rotate_acton = TurnForShoot;
+            //             action_cmd_.rotate_mode = 0;
+            //             move2target(tmp, robot_pos_);
+            //             move2ori(shoot_line.angle().radian_, robot_ori_.radian_);
+
+            //             {
+            //                 double up_radian_ = (world_model_info_.field_info_.oppGoal_[GOAL_MIDUPPER] - robot_pos_).angle().radian_;
+            //                 double low_radian_ = (world_model_info_.field_info_.oppGoal_[GOAL_MIDLOWER] - robot_pos_).angle().radian_;
+            //                 if (robot_ori_.radian_ > low_radian_ && robot_ori_.radian_ < up_radian_)
+            //                 {
+            //                     action_cmd_.shootPos = RUN /*FLY*/;
+            //                     action_cmd_.strength = shoot_line.length() / 25.0;
+            //                     if (action_cmd_.strength < 15.0)
+            //                         action_cmd_.strength = 15.0;
+            //                     shoot_flag = true;
+            //                     std::cout << "shoot done " << std::endl;
+            //                 }
+            //             }
+            //         }
+            //     }
+            //     else
+            //     {
+            //         action_cmd_.move_action = No_Action;
+            //         action_cmd_.rotate_acton = No_Action;
+            //         if (shoot_flag)
+            //             shoot_count++;
+            //         if (shoot_count > 20)
+            //         {
+            //             shoot_count = 0;
+            //             shoot_flag = false;
+            //         }
+            //     }
+            // }
         }
 
         // avoid
@@ -1274,7 +1567,7 @@ namespace nubot
         int whichopp_dribble() noexcept
         {
             for (int i = 0; i < 5; ++i)
-                if (world_model_info_.Opponents_[i].distance(ball_pos_) < 36)
+                if (world_model_info_.Opponents_[i].distance(ball_pos_) < 35.5)
                     return i;
             return -1;
         }
@@ -1294,8 +1587,8 @@ namespace nubot
 
         bool isNearestRobot() //判断自己是否为离球最近的机器人
         {
-            float distance_min = 2000.0;
-            float distance = distance_min;
+            float distance_min = 65536.0;
+            float distance = 0.0;
             int robot_id = -1;
 
             for (int i = 1; i < OUR_TEAM; i++) // 排除守门员
@@ -1531,7 +1824,7 @@ namespace nubot
         auto k = divk(up_k, down_k);
         //确保是内角平分线
         k = ((ball_pos.y_ > 0) ? fabs(k) : -fabs(k));
-        return DPoint(-1050.0, -k * 1050.0 + ball_pos.y_ - k * ball_pos.x_);
+        return DPoint(-1090.0, -k * 1090.0 + ball_pos.y_ - k * ball_pos.x_);
     }
 
     //获取目标点
@@ -1539,13 +1832,13 @@ namespace nubot
     {
         auto num = getArea();
         if (num == 4)
-            return DPoint(-1050, 120);
+            return DPoint(-1090, 120);
         if (num == 5)
-            return DPoint(-1050, -120);
+            return DPoint(-1090, -120);
 
         //可去
         if (num == 6)
-            return DPoint(-1050, 0);
+            return DPoint(-1090, 0);
 
         //角平分线站位
         if (num == 3)
@@ -1568,7 +1861,7 @@ namespace nubot
         // }
 
         // num == 1 与 num == 2 num == 6 的情况
-        return DPoint(-1050, 0);
+        return DPoint(-1090, 0);
     }
 }
 
@@ -1582,3 +1875,4 @@ int main(int argc, char **argv)
     ros::spin();
     return 0;
 }
+

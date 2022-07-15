@@ -56,6 +56,7 @@ namespace nubot
 		float kbeta;
 		bool inourfield_;
 		bool inoppfield_;
+		bool shoot_out;
 		double lastdirection;
 
 		DPoint robot_pos_;
@@ -76,6 +77,10 @@ namespace nubot
 		bool PassBall_Action(int catch_ID, int pass_mode_);
 		void CatchPassedBall(void);
 		void ProtectBallTry();
+
+		bool penalty();
+
+		void moveAvoidBall(DPoint target);
 		bool ifParking(DPoint pos)
 		{
 			return (pos.y_ >= 800.0 || pos.y_ <= -800.0);
@@ -118,7 +123,7 @@ namespace nubot
 
 		bool isMoving = false;
 		// shoot
-		void shoot_1(bool &);
+		void shoot_1();
 		int canPass(int);
 		const DPoint get_fly_landing_point();
 
@@ -185,8 +190,15 @@ namespace nubot
 		int nearest_opp(int exp1 = -1, int exp2 = -1);
 		// defend end
 
+		//attack
+		int can_pass_near_goal(int&);
+		//attack end
+
 		int Get_Ball_Mode(int);
+		
+		int dribble_dis();
+
+		bool isInField(DPoint world_pt, double expand_len, double expand_width);
 	};
 }
 #endif // PLAN_H
-
